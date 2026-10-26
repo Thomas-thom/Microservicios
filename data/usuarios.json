@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "nombre": "Ricardo Gómez",
+    "email": "ricardo@example.com",
+    "password": "$2a$10$cZVf53gj42NXk91M4/aZlOrTOnRMRefE.yXZEP7mbb/Qd/gIQP3m6",
+    "rol": "admin"
+  },
+  {
+    "id": 2,
+    "nombre": "María López",
+    "email": "maria@example.com",
+    "password": "$2a$10$utnegcBfrefHZBdNuE9Jb.kLYTzVtf7C/1ocOCw5ZQiDY.Akp9RM.",
+    "rol": "cliente"
+  }
+]

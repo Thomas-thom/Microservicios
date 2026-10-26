@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sistema de facturación digital con microservicios en Go y persistencia JSON">
+  <title>Sistema de Facturación Digital | Microservicios en Go</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- NAVBAR SUPERIOR -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon">⚡</div>
+      <span>FacturaDigital</span>
+    </div>
+
+    <!-- Menú de navegación (solo visible cuando autenticado) -->
+    <nav id="user-info-bar" style="display: none;">
+      <ul class="nav-links">
+        <li><a href="#dashboard" class="nav-link active" data-target="sec-dashboard">Dashboard</a></li>
+        <li><a href="#productos" class="nav-link" data-target="sec-productos">Productos</a></li>
+        <li><a href="#clientes" class="nav-link" data-target="sec-clientes">Clientes</a></li>
+        <li><a href="#nueva-factura" class="nav-link" data-target="sec-nueva-factura">+ Nueva Factura</a></li>
+        <li><a href="#facturas" class="nav-link" data-target="sec-facturas">Historial Facturas</a></li>
+      </ul>
+      <div class="nav-user">
+        <span id="current-user-name" class="font-bold">Usuario</span>
+        <span id="current-user-role" class="badge badge-purple">admin</span>
+        <button id="logout-btn" class="btn btn-sm btn-outline" title="Cerrar sesión">Salir</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="container">
+
+    <!-- SECCIÓN DE AUTENTICACIÓN (LOGIN / REGISTRO) -->
+    <section id="auth-section" class="auth-wrapper">
+      <!-- Caja de Login -->
+      <div id="login-box" class="auth-card">
+        <h2>Iniciar Sesión</h2>
+        <p>Ingresa tus credenciales para acceder al sistema de facturación.</p>
+        <form id="login-form">
+          <div class="form-group">
+            <label for="login-email">Correo Electrónico</label>
+            <input type="email" id="login-email" class="form-control" placeholder="ejemplo@correo.com" required value="ricardo@example.com">
+          </div>
+          <div class="form-group">
+            <label for="login-password">Contraseña</label>
+            <input type="password" id="login-password" class="form-control" placeholder="••••••••" required value="admin123">
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">Iniciar Sesión</button>
+        </form>
+        <p style="margin-top: 1.5rem; text-align: center; font-size: 0.9rem;">
+          ¿No tienes una cuenta? <a href="#" id="show-register-link">Regístrate aquí</a>
+        </p>
+      </div>
+
+      <!-- Caja de Registro -->
+      <div id="register-box" class="auth-card" style="display: none;">
+        <h2>Crear Cuenta</h2>
+        <p>Regístrate para empezar a emitir facturas y administrar el sistema.</p>
+        <form id="register-form">
+          <div class="form-group">
+            <label for="reg-nombre">Nombre Completo</label>
+            <input type="text" id="reg-nombre" class="form-control" placeholder="Ej: Carlos Sánchez" required>
+          </div>
+          <div class="form-group">
+            <label for="reg-email">Correo Electrónico</label>
+            <input type="email" id="reg-email" class="form-control" placeholder="ejemplo@correo.com" required>
+          </div>
+          <div class="form-group">
+            <label for="reg-password">Contraseña</label>
+            <input type="password" id="reg-password" class="form-control" placeholder="Mínimo 4 caracteres" required>
+          </div>
+          <div class="form-group">
+            <label for="reg-rol">Rol del Usuario</label>
+            <select id="reg-rol" class="form-control">
+              <option value="admin">Administrador (Control total)</option>
+              <option value="cliente" selected>Cliente / Operador</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-success btn-block">Crear Cuenta</button>
+        </form>
+        <p style="margin-top: 1.5rem; text-align: center; font-size: 0.9rem;">
+          ¿Ya tienes cuenta? <a href="#" id="show-login-link">Inicia sesión</a>
+        </p>
+      </div>
+    </section>
+
+    <!-- APLICACIÓN PRINCIPAL (VISIBLE SOLO AUTENTICADO) -->
+    <div id="app-main" style="display: none;">
+
+      <!-- 1. DASHBOARD -->
+      <section id="sec-dashboard" class="app-section active">
+        <div class="section-header">
+          <div>
+            <h1>Panel de Control</h1>
+            <p>Resumen general del negocio, inventario y facturación.</p>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-emerald">💰</div>
+            <div class="stat-info">
+              <h3>Total Facturado</h3>
+              <div class="stat-value" id="stat-total-facturado">$ 0,00</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-indigo">📄</div>
+            <div class="stat-info">
+              <h3>Facturas Emitidas</h3>
+              <div class="stat-value" id="stat-num-facturas">0</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-blue">👥</div>
+            <div class="stat-info">
+              <h3>Clientes Registrados</h3>
+              <div class="stat-value" id="stat-num-clientes">0</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon stat-icon-amber">📦</div>
+            <div class="stat-info">
+              <h3>Productos en Catálogo</h3>
+              <div class="stat-value" id="stat-num-productos">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Últimas Facturas Generadas</h2>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>N° Factura</th>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Importe Total</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody id="dashboard-recent-table">
+                <tr><td colspan="5" class="text-center text-muted">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. GESTIÓN DE PRODUCTOS -->
+      <section id="sec-productos" class="app-section">
+        <div class="section-header">
+          <div>
+            <h1>Gestión de Productos</h1>
+            <p>Administra catálogo, precios unitarios y existencias en tiempo real.</p>
+          </div>
+          <button class="btn btn-primary" onclick="ProductosModule.openNew()">+ Nuevo Producto</button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <input type="text" id="search-producto" class="form-control" placeholder="Buscar producto por nombre o ID..." style="max-width: 320px;">
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nombre del Producto</th>
+                  <th>Precio Unitario</th>
+                  <th>Stock Disponible</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="productos-table-body">
+                <tr><td colspan="5" class="text-center text-muted">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. GESTIÓN DE CLIENTES -->
+      <section id="sec-clientes" class="app-section">
+        <div class="section-header">
+          <div>
+            <h1>Gestión de Clientes</h1>
+            <p>Registro y administración de clientes con cédula, correo y dirección.</p>
+          </div>
+          <button class="btn btn-primary" onclick="ClientesModule.openNew()">+ Nuevo Cliente</button>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <input type="text" id="search-cliente" class="form-control" placeholder="Buscar cliente por nombre, CC o email..." style="max-width: 320px;">
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nombre Completo</th>
+                  <th>Identificación (CC)</th>
+                  <th>Correo Electrónico</th>
+                  <th>Dirección</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="clientes-table-body">
+                <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. EMISIÓN DE NUEVA FACTURA -->
+      <section id="sec-nueva-factura" class="app-section">
+        <div class="section-header">
+          <div>
+            <h1>Generar Factura</h1>
+            <p>Selecciona el cliente y los productos. El cálculo y descuento de inventario se procesa en el backend.</p>
+          </div>
+        </div>
+
+        <form id="factura-form">
+          <div class="billing-grid">
+            <!-- Selección de Cliente -->
+            <div class="card">
+              <h2 class="card-title" style="margin-bottom: 1rem;">1. Datos del Cliente</h2>
+              <div class="form-group">
+                <label for="factura-cliente-select">Cliente</label>
+                <select id="factura-cliente-select" class="form-control" required>
+                  <option value="">Cargando clientes...</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Agregar Productos -->
+            <div class="card">
+              <h2 class="card-title" style="margin-bottom: 1rem;">2. Selección de Productos</h2>
+              <div class="form-group">
+                <label for="factura-producto-select">Producto Disponible</label>
+                <select id="factura-producto-select" class="form-control">
+                  <option value="">Cargando productos...</option>
+                </select>
+                <small id="selected-prod-stock-info" class="text-emerald" style="display: block; margin-top: 0.25rem; font-weight: 500;"></small>
+              </div>
+              <div style="display: flex; gap: 0.75rem; align-items: flex-end;">
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                  <label for="factura-cantidad-input">Cantidad</label>
+                  <input type="number" id="factura-cantidad-input" class="form-control" min="1" value="1">
+                </div>
+                <button type="button" id="btn-add-item" class="btn btn-outline" style="height: 42px;">+ Agregar Ítem</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detalle de la Factura -->
+          <div class="card" style="margin-top: 1.5rem;">
+            <h2 class="card-title" style="margin-bottom: 1rem;">3. Detalle de la Factura</h2>
+            <div class="table-responsive">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th class="text-center" style="width: 140px;">Cantidad</th>
+                    <th>Precio Unit.</th>
+                    <th>Subtotal</th>
+                    <th style="width: 60px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="factura-items-table">
+                  <tr><td colspan="5" class="text-center text-muted">Aún no has agregado productos a la factura.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="billing-total-box">
+              <h3>Total a Pagar:</h3>
+              <div class="total-amount" id="factura-total-display">$ 0,00</div>
+            </div>
+
+            <div style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+              <button type="submit" id="btn-submit-factura" class="btn btn-success" style="font-size: 1.05rem; padding: 0.85rem 2rem;">
+                Emitir y Guardar Factura
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- 5. HISTORIAL DE FACTURAS -->
+      <section id="sec-facturas" class="app-section">
+        <div class="section-header">
+          <div>
+            <h1>Historial de Facturas</h1>
+            <p>Consulta las facturas almacenadas en JSON, visualízalas e imprímelas en PDF.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <input type="text" id="search-factura" class="form-control" placeholder="Buscar por número de factura, cliente o fecha..." style="max-width: 360px;">
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Factura ID</th>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Vendedor</th>
+                  <th>Total</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="facturas-table-body">
+                <tr><td colspan="6" class="text-center text-muted">Cargando...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- MODAL: NUEVO / EDITAR PRODUCTO -->
+  <div id="modal-producto" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-producto-title">Nuevo Producto</h3>
+        <button class="modal-close" onclick="ProductosModule.closeModal()">&times;</button>
+      </div>
+      <form id="producto-form">
+        <div class="modal-body">
+          <input type="hidden" id="producto-id">
+          <div class="form-group">
+            <label for="producto-nombre">Nombre del Producto</label>
+            <input type="text" id="producto-nombre" class="form-control" placeholder="Ej: Disco de Freno Delantero" required>
+          </div>
+          <div class="form-group">
+            <label for="producto-precio">Precio Unitario ($)</label>
+            <input type="number" id="producto-precio" class="form-control" step="0.01" min="0.01" placeholder="Ej: 150000.00" required>
+          </div>
+          <div class="form-group">
+            <label for="producto-stock">Stock / Existencias</label>
+            <input type="number" id="producto-stock" class="form-control" min="0" placeholder="Ej: 20" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="ProductosModule.closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: NUEVO / EDITAR CLIENTE -->
+  <div id="modal-cliente" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-cliente-title">Nuevo Cliente</h3>
+        <button class="modal-close" onclick="ClientesModule.closeModal()">&times;</button>
+      </div>
+      <form id="cliente-form">
+        <div class="modal-body">
+          <input type="hidden" id="cliente-id">
+          <div class="form-group">
+            <label for="cliente-nombre">Nombre Completo</label>
+            <input type="text" id="cliente-nombre" class="form-control" placeholder="Ej: Carlos Pérez" required>
+          </div>
+          <div class="form-group">
+            <label for="cliente-cc">Cédula / Identificación (CC)</label>
+            <input type="text" id="cliente-cc" class="form-control" placeholder="Ej: 1234567" required>
+          </div>
+          <div class="form-group">
+            <label for="cliente-email">Correo Electrónico</label>
+            <input type="email" id="cliente-email" class="form-control" placeholder="carlos@example.com" required>
+          </div>
+          <div class="form-group">
+            <label for="cliente-direccion">Dirección</label>
+            <input type="text" id="cliente-direccion" class="form-control" placeholder="Ej: Calle 123 #45-67, Bogotá" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="ClientesModule.closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Cliente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: DETALLE DE FACTURA / IMPRESIÓN PDF -->
+  <div id="modal-factura-detalle" class="modal-overlay">
+    <div class="modal-content modal-content-lg">
+      <div class="modal-header">
+        <h3>Comprobante de Factura</h3>
+        <button class="modal-close" onclick="FacturasListModule.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Documento impreso en formato factura comercial -->
+        <div class="invoice-paper">
+          <div class="invoice-paper-header">
+            <div class="company-info">
+              <h2>EMPRESA DE FACTURACIÓN DIGITAL S.A.S.</h2>
+              <p>NIT: 900.123.456-7 | Régimen Común</p>
+              <p>Dirección: Av. Principal #100-20 | Tel: (601) 555-0199</p>
+              <p>Bogotá D.C. - Colombia</p>
+            </div>
+            <div class="invoice-meta">
+              <h3>FACTURA ELECTRÓNICA</h3>
+              <h2 id="inv-modal-id" style="color: #6366f1;">#5001</h2>
+              <p><strong>Fecha de Emisión:</strong> <span id="inv-modal-fecha">2026-10-18</span></p>
+            </div>
+          </div>
+
+          <div class="invoice-parties">
+            <div class="party-box">
+              <h4>Adquirente / Cliente:</h4>
+              <p><strong>Nombre:</strong> <span id="inv-modal-cliente-nombre">Carlos Pérez</span></p>
+              <p><strong>Correo:</strong> <span id="inv-modal-cliente-email">carlos@example.com</span></p>
+            </div>
+            <div class="party-box">
+              <h4>Emitido por (Vendedor):</h4>
+              <p><strong>Usuario:</strong> <span id="inv-modal-vendedor-nombre">Ricardo Gómez</span></p>
+              <p><strong>Rol:</strong> <span id="inv-modal-vendedor-rol">admin</span></p>
+            </div>
+          </div>
+
+          <table class="invoice-table">
+            <thead>
+              <tr>
+                <th style="width: 70px;" class="text-center">Cant.</th>
+                <th>Descripción del Producto</th>
+                <th class="text-right">Precio Unit.</th>
+                <th class="text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody id="inv-modal-items">
+              <!-- Ítems dinámicos -->
+            </tbody>
+          </table>
+
+          <div class="invoice-total-section">
+            <div class="invoice-total-box">
+              <span>TOTAL A PAGAR:</span>
+              <strong id="inv-modal-total">$ 0,00</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="FacturasListModule.closeModal()">Cerrar</button>
+        <button type="button" class="btn btn-outline" onclick="FacturasListModule.downloadJSON()">Descargar JSON</button>
+        <button type="button" class="btn btn-primary" onclick="FacturasListModule.printCurrentInvoice()">🖨️ Imprimir / Exportar a PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script src="js/config.js"></script>
+  <script src="js/toast.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/productos.js"></script>
+  <script src="js/clientes.js"></script>
+  <script src="js/facturacion.js"></script>
+  <script src="js/facturas_list.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
