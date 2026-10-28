@@ -1,21 +1,25 @@
-// Cliente HTTP unificado para microservicios con gestión de token y errores
+// Capa de Servicio HTTP Reactivo para Microservicios en Go
 const API = {
+  TOKEN_KEY: 'auth_token',
+  USER_KEY: 'auth_user',
+  THEME_KEY: 'ff_theme',
+
   getToken() {
-    return localStorage.getItem('auth_token');
+    return localStorage.getItem(this.TOKEN_KEY);
   },
 
   setToken(token) {
     if (token) {
-      localStorage.setItem('auth_token', token);
+      localStorage.setItem(this.TOKEN_KEY, token);
     } else {
-      localStorage.removeItem('auth_token');
+      localStorage.removeItem(this.TOKEN_KEY);
     }
   },
 
   getUser() {
     try {
-      const u = localStorage.getItem('auth_user');
-      return u ? JSON.parse(u) : null;
+      const raw = localStorage.getItem(this.USER_KEY);
+      return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
@@ -23,15 +27,24 @@ const API = {
 
   setUser(user) {
     if (user) {
-      localStorage.setItem('auth_user', JSON.stringify(user));
+      localStorage.setItem(this.USER_KEY, JSON.stringify(user));
     } else {
-      localStorage.removeItem('auth_user');
+      localStorage.removeItem(this.USER_KEY);
     }
   },
 
   clearSession() {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    localStorage.removeItem(this.TOKEN_KEY);
+    localStorage.removeItem(this.USER_KEY);
+  },
+
+  getTheme() {
+    return localStorage.getItem(this.THEME_KEY) || 'light';
+  },
+
+  setTheme(theme) {
+    localStorage.setItem(this.THEME_KEY, theme);
+    document.documentElement.setAttribute('data-bs-theme', theme);
   },
 
   async request(url, options = {}) {
@@ -51,7 +64,6 @@ const API = {
         headers
       });
 
-      // Manejo de respuestas 204 No Content
       if (response.status === 204) {
         return null;
       }
@@ -66,7 +78,6 @@ const API = {
       }
 
       if (!response.ok) {
-        // Extraer mensaje según RFC 9457 o estándar
         const errorMsg = data?.detail || data?.title || data?.message || `Error HTTP ${response.status}`;
         const err = new Error(errorMsg);
         err.status = response.status;
@@ -77,9 +88,8 @@ const API = {
       return data;
     } catch (err) {
       if (err.status === 401 && !url.includes('/login') && !url.includes('/register')) {
-        Toast.warning('Tu sesión ha expirado o no es válida. Por favor ingresa nuevamente.');
         this.clearSession();
-        window.dispatchEvent(new CustomEvent('auth-changed'));
+        window.dispatchEvent(new CustomEvent('session-expired'));
       }
       throw err;
     }
@@ -107,6 +117,31 @@ const API = {
 
   delete(url, headers = {}) {
     return this.request(url, { method: 'DELETE', headers });
+  },
+
+  // Verifica el estado y latencia de los 4 microservicios en paralelo
+  async checkServicesHealth() {
+    const checks = await Promise.all(
+      CONFIG.SERVICES_META.map(async (svc) => {
+        const start = performance.now();
+        try {
+          const res = await fetch(svc.url, { method: 'GET' });
+          const latency = Math.round(performance.now() - start);
+          return {
+            ...svc,
+            online: res.ok,
+            latency
+          };
+        } catch {
+          return {
+            ...svc,
+            online: false,
+            latency: null
+          };
+        }
+      })
+    );
+    return checks;
   }
 };
 

@@ -1,6 +1,6 @@
 # Sistema de Facturación Digital Basado en Microservicios (Go)
 
-Sistema de facturación digital desarrollado en **Go** y un cliente web en **JavaScript**, estructurado en microservicios independientes con persistencia en archivos **JSON**, conforme a los requerimientos del proyecto académico `Proyecto1ProgramacionAvanzada.pdf`.
+Sistema de facturación digital desarrollado en **Go** y una interfaz web moderna en **React 18 + Bootstrap 5.3**, estructurado en microservicios independientes con persistencia en archivos **JSON**, conforme a los requerimientos del proyecto académico `Proyecto1ProgramacionAvanzada.pdf`.
 
 ---
 

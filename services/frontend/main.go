@@ -42,7 +42,10 @@ func main() {
 	log.Printf("[Frontend Web] Sirviendo interfaz desde: %s", absDir)
 
 	fs := http.FileServer(http.Dir(dir))
-	http.Handle("/", fs)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		fs.ServeHTTP(w, r)
+	})
 
 	addr := fmt.Sprintf(":%s", port)
 	log.Printf("[Frontend Web] Aplicación lista en http://localhost%s", addr)

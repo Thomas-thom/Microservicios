@@ -9,7 +9,7 @@ Este documento describe la arquitectura modular del sistema de facturación basa
 ```mermaid
 graph TB
     subgraph Frontend["Frontend Web (Puerto 8080)"]
-        UI["SPA en HTML5 + CSS3 + Vanilla JS"]
+        UI["SPA en React 18 + Bootstrap 5.3"]
     end
 
     subgraph Microservicios["Ecosistema de Microservicios en Go"]
