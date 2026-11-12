@@ -38,52 +38,76 @@ Los archivos de persistencia iniciales en la carpeta `data/` incluyen los siguie
 
 ---
 
-## 4. Cómo Iniciar los Servicios
+## 4. Cómo Iniciar los Servicios (Prueba Oficial en 4 Ventanas de CMD)
 
-### Opción 1: Runner Unificado en Go (Recomendado)
-Ejecuta un solo comando desde la raíz del proyecto para iniciar todos los microservicios y el frontend concurrentemente:
+### Opción A: Lanzador Automático de las 4 Ventanas de CMD (Recomendado para Sustentación)
+Haz doble clic en **`iniciar-4-cmd.bat`** (o ejecuta en consola):
+```cmd
+iniciar-4-cmd.bat
+```
+Esto abrirá automáticamente las **4 ventanas de CMD independientes** en el orden solicitado:
+1. **Ventana CMD 1:** Servicio General de Facturación (`:8084`) + Servidor de Interfaz Web integrado (`:8080` y `:8084`).
+2. **Ventana CMD 2:** Servicio de Autenticación (`:8081`).
+3. **Ventana CMD 3:** Servicio de Productos (`:8082`).
+4. **Ventana CMD 4:** Servicio de Clientes (`:8083`).
 
-```bash
-go run scripts/runner/main.go
+### Opción B: Abrir las 4 Ventanas de CMD Manualmente
+Abre **4 ventanas de Símbolo del sistema (`cmd.exe`)** y sitúate en la carpeta raíz del proyecto en cada una:
+
+```cmd
+cd "C:\Users\Thuer\OneDrive\Documents\Microservicios"
 ```
 
-### Opción 2: Scripts de Windows
-- En **CMD**:
+Luego ejecuta cada servicio en su ventana correspondiente:
+
+- **Ventana CMD 1 (Servicio General de Facturación + Interfaz Web - Puertos 8084 y 8080):**
   ```cmd
-  scripts\start-all.bat
+  go run ./services/facturacion
   ```
-- En **PowerShell**:
-  ```powershell
-  .\scripts\start-all.ps1
+- **Ventana CMD 2 (Servicio de Autenticación - Puerto 8081):**
+  ```cmd
+  go run ./services/auth
+  ```
+- **Ventana CMD 3 (Servicio de Productos - Puerto 8082):**
+  ```cmd
+  go run ./services/productos
+  ```
+- **Ventana CMD 4 (Servicio de Clientes - Puerto 8083):**
+  ```cmd
+  go run ./services/clientes
   ```
 
-### Opción 3: Terminales Independientes
-Si prefieres iniciar cada microservicio manualmente en una terminal distinta:
-
-```bash
-# Terminal 1: Autenticación
-go run ./services/auth
-
-# Terminal 2: Productos
-go run ./services/productos
-
-# Terminal 3: Clientes
-go run ./services/clientes
-
-# Terminal 4: Facturación
-go run ./services/facturacion
-
-# Terminal 5: Frontend Web
-go run ./services/frontend
-```
+*(Nota: También existe `iniciar-5-cmd.bat` si se desea correr el servidor de archivos estáticos `services/frontend` en una 5ta ventana separada).*
 
 ---
 
-## 5. Acceso al Frontend
+## 5. Pruebas de Sustentación del Profesor
 
-Una vez iniciados los servicios, abre en tu navegador:
+### 5.1. Efecto de Matar / Detener Servicios por Separado sobre el Servicio de Facturas
+Para detener cualquier servicio en su ventana de CMD, presiona **`Ctrl + C`** (o cierra su ventana) y en la interfaz web ve a **Punto de Venta (POS)** y haz clic en **"Emitir y Guardar Factura"** o en **"Probar Efecto en Facturación (:8084)"**:
 
-👉 **[http://localhost:8080](http://localhost:8080)**
+| Servicio Detenido (`Ctrl+C`) | Efecto en el Servicio General de Facturación (`:8084`) |
+| :--- | :--- |
+| **Autenticación (`:8081`)** | Falla en el **Paso 1/4** (`GET /verify`). El servicio de facturación registra el fallo en su consola CMD y devuelve `HTTP 503 Service Unavailable`. No se emite factura ni se altera el stock. |
+| **Clientes (`:8083`)** | Pasa el Paso 1 (Auth OK), pero falla en el **Paso 2/4** (`GET /clientes/{id}`). El servicio de facturación devuelve `HTTP 503 Service Unavailable` indicando que el servicio de Clientes está caído. No se altera el stock. |
+| **Productos (`:8082`)** | Pasan los Pasos 1 y 2, pero falla en el **Paso 3/4 y 4/4** (`GET /productos/{id}` / `POST /productos/descontar`). El servicio de facturación devuelve `HTTP 503 Service Unavailable` y aborta la creación de la factura para proteger la integridad del inventario. |
+
+Para volver a levantar un servicio detenido en su ventana de CMD, basta con presionar la flecha hacia arriba (`↑`) y `Enter`.
+
+### 5.2. Modificación en Vivo de los Archivos JSON (`data/*.json`)
+Todos los microservicios leen y escriben directamente sobre los archivos JSON en cada petición HTTP sin requerir reinicio:
+- **`data/usuarios.json` (`:8081`):** Puedes editar nombres, roles o agregar un usuario nuevo (soporta tanto hashes `bcrypt` como contraseñas en texto plano escritas manualmente durante la prueba). El endpoint `/verify` consulta `usuarios.json` en tiempo real al emitir facturas.
+- **`data/productos.json` (`:8082`):** Puedes modificar precios, cambiar existencias (`stock`) o agregar un producto nuevo. Al pulsar **"Recargar productos.json"** o emitir una factura, el backend tomará inmediatamente el nuevo precio y stock.
+- **`data/clientes.json` (`:8083`):** Puedes modificar nombres, cédulas (`cc`), correos o agregar clientes y verlos reflejados al instante en la interfaz web.
+- **`data/facturas.json` (`:8084`):** Almacena todas las facturas emitidas con numeración consecutiva (`5001+`).
+
+---
+
+## 6. Acceso al Frontend (JavaScript + React.js 18 + Bootstrap 5.3)
+
+Una vez iniciadas las 4 ventanas de CMD, abre en tu navegador cualquiera de estas dos direcciones:
+
+👉 **[http://localhost:8080](http://localhost:8080)** ó **[http://localhost:8084](http://localhost:8084)**
 
 ### Funcionalidades de la Interfaz:
 1. **Inicio de Sesión y Registro:** Autenticación protegida con tokens firmados por el microservicio de Auth.

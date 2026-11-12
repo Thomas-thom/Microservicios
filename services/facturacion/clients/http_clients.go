@@ -11,6 +11,8 @@ import (
 	"microservicios/pkg/token"
 )
 
+var ErrServiceUnavailable = errors.New("microservicio no disponible")
+
 type RemoteUser struct {
 	ID     int    `json:"id"`
 	Nombre string `json:"nombre"`
@@ -58,6 +60,12 @@ func NewServiceClients(authURL, clientesURL, productosURL string) *ServiceClient
 	}
 }
 
+func (c *ServiceClients) SetHTTPClient(client *http.Client) {
+	if client != nil {
+		c.httpClient = client
+	}
+}
+
 // VerifyUser verifica el token con el microservicio de autenticación
 func (c *ServiceClients) VerifyUser(authHeader string) (*RemoteUser, error) {
 	if authHeader == "" {
@@ -72,17 +80,12 @@ func (c *ServiceClients) VerifyUser(authHeader string) (*RemoteUser, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		// Fallback directo a validación criptográfica de token si el microservicio no responde de inmediato
-		claims, tErr := token.ValidateToken(authHeader)
-		if tErr == nil {
-			return &RemoteUser{ID: claims.ID, Nombre: claims.Nombre, Email: claims.Email, Rol: claims.Rol}, nil
-		}
-		return nil, fmt.Errorf("error al conectar con Auth Service: %w", err)
+		return nil, fmt.Errorf("%w: El Servicio de Autenticación (%s) está detenido o no responde. Efecto en Facturación: no se puede verificar el token del usuario ni emitir facturas", ErrServiceUnavailable, c.authURL)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.New("token de usuario inválido o expirado")
+		return nil, errors.New("token de usuario inválido, expirado o el usuario fue eliminado de usuarios.json")
 	}
 
 	var claims token.UserClaims
@@ -102,12 +105,12 @@ func (c *ServiceClients) VerifyUser(authHeader string) (*RemoteUser, error) {
 func (c *ServiceClients) GetCliente(id int) (*RemoteCliente, error) {
 	resp, err := c.httpClient.Get(fmt.Sprintf("%s/clientes/%d", c.clientesURL, id))
 	if err != nil {
-		return nil, fmt.Errorf("error al conectar con Clientes Service: %w", err)
+		return nil, fmt.Errorf("%w: El Servicio de Clientes (%s) está detenido o no responde. Efecto en Facturación: no se puede validar ni obtener la información del cliente ID %d", ErrServiceUnavailable, c.clientesURL, id)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, errors.New("cliente no encontrado")
+		return nil, fmt.Errorf("el cliente con ID %d no existe en data/clientes.json", id)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("error al consultar cliente: código HTTP %d", resp.StatusCode)
@@ -124,12 +127,12 @@ func (c *ServiceClients) GetCliente(id int) (*RemoteCliente, error) {
 func (c *ServiceClients) GetProducto(id int) (*RemoteProducto, error) {
 	resp, err := c.httpClient.Get(fmt.Sprintf("%s/productos/%d", c.productosURL, id))
 	if err != nil {
-		return nil, fmt.Errorf("error al conectar con Productos Service: %w", err)
+		return nil, fmt.Errorf("%w: El Servicio de Productos (%s) está detenido o no responde. Efecto en Facturación: no se puede consultar precio ni stock del producto ID %d", ErrServiceUnavailable, c.productosURL, id)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, errors.New("producto no encontrado")
+		return nil, fmt.Errorf("el producto con ID %d no existe en data/productos.json", id)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("error al consultar producto: código HTTP %d", resp.StatusCode)
@@ -155,7 +158,7 @@ func (c *ServiceClients) DescontarStock(items []DescontarItem) error {
 		bytes.NewReader(payload),
 	)
 	if err != nil {
-		return fmt.Errorf("error al conectar con Productos Service para descontar stock: %w", err)
+		return fmt.Errorf("%w: El Servicio de Productos (%s) está detenido o no responde. Efecto en Facturación: no se pudo descontar el stock atómicamente", ErrServiceUnavailable, c.productosURL)
 	}
 	defer resp.Body.Close()
 

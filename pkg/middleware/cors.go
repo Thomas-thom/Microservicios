@@ -1,8 +1,22 @@
 package middleware
 
-import "net/http"
+import (
+	"log"
+	"net/http"
+	"time"
+)
 
-// EnableCORS agrega los headers de CORS requeridos y responde a preflights OPTIONS
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rec *statusRecorder) WriteHeader(code int) {
+	rec.statusCode = code
+	rec.ResponseWriter.WriteHeader(code)
+}
+
+// EnableCORS agrega los headers de CORS requeridos, responde a preflights OPTIONS y registra cada petición HTTP en consola
 func EnableCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -14,6 +28,10 @@ func EnableCORS(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		log.Printf("[HTTP] %-6s %-25s -> %d %s (%v)", r.Method, r.URL.Path, rec.statusCode, http.StatusText(rec.statusCode), time.Since(start).Round(time.Microsecond))
 	})
 }
+

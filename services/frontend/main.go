@@ -43,6 +43,7 @@ func main() {
 
 	fs := http.FileServer(http.Dir(dir))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[HTTP] %-6s %s", r.Method, r.URL.Path)
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		fs.ServeHTTP(w, r)
 	})

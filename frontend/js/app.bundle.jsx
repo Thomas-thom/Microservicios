@@ -159,16 +159,16 @@ function AppProvider({ children }) {
     if (!silent) setLoadingData(true);
     try {
       const [prods, cls, facts, usrs, health] = await Promise.all([
-        API.get(`${CONFIG.PRODUCTOS_API}/productos`).catch(() => []),
-        API.get(`${CONFIG.CLIENTES_API}/clientes`).catch(() => []),
-        API.get(`${CONFIG.FACTURACION_API}/facturas`).catch(() => []),
-        API.get(`${CONFIG.AUTH_API}/usuarios`).catch(() => []),
+        API.get(`${CONFIG.PRODUCTOS_API}/productos`).catch(() => null),
+        API.get(`${CONFIG.CLIENTES_API}/clientes`).catch(() => null),
+        API.get(`${CONFIG.FACTURACION_API}/facturas`).catch(() => null),
+        API.get(`${CONFIG.AUTH_API}/usuarios`).catch(() => null),
         API.checkServicesHealth()
       ]);
-      setProductos(Array.isArray(prods) ? prods : []);
-      setClientes(Array.isArray(cls) ? cls : []);
-      setFacturas(Array.isArray(facts) ? facts : []);
-      setUsuarios(Array.isArray(usrs) ? usrs : []);
+      if (Array.isArray(prods)) setProductos(prods);
+      if (Array.isArray(cls)) setClientes(cls);
+      if (Array.isArray(facts)) setFacturas(facts);
+      if (Array.isArray(usrs)) setUsuarios(usrs);
       setServicesHealth(health);
     } finally {
       if (!silent) setLoadingData(false);
@@ -202,9 +202,18 @@ function AppProvider({ children }) {
           setUser(validUser);
           await refreshAll(false);
         }
-      } catch {
-        API.clearSession();
-        if (mounted) setUser(null);
+      } catch (err) {
+        if (err && err.status === 401) {
+          API.clearSession();
+          if (mounted) setUser(null);
+        } else {
+          // Si Auth (:8081) fue detenido para prueba de caída de servicios, mantener sesión en UI para permitir probar el efecto en Facturación
+          const cachedUser = API.getUser();
+          if (mounted && cachedUser) {
+            setUser(cachedUser);
+            await refreshAll(false);
+          }
+        }
       } finally {
         if (mounted) setCheckingAuth(false);
       }
@@ -1852,18 +1861,35 @@ function ProductosView() {
             Catálogo de Productos e Inventario
           </h2>
           <p className="text-secondary mb-0">
-            Administra precios unitarios, existencias en tiempo real y reposición rápida.
+            Persistencia en vivo sobre <code className="font-mono">data/productos.json</code> (Microservicio :8082).
           </p>
         </div>
 
-        <button
-          type="button"
-          className="btn btn-primary rounded-3 fw-semibold px-4 py-2 shadow-sm"
-          onClick={openCreateModal}
-        >
-          <i className="bi bi-plus-circle-fill me-2"></i>
-          Nuevo Producto
-        </button>
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-primary rounded-3 fw-semibold px-3 py-2"
+            onClick={async () => {
+              try {
+                await refreshProductos();
+                notify.info('Catálogo recargado desde data/productos.json');
+              } catch (err) {
+                notify.error('El Servicio de Productos (:8082) está detenido o no responde.');
+              }
+            }}
+          >
+            <i className="bi bi-arrow-clockwise me-2"></i>
+            Recargar productos.json
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary rounded-3 fw-semibold px-4 py-2 shadow-sm"
+            onClick={openCreateModal}
+          >
+            <i className="bi bi-plus-circle-fill me-2"></i>
+            Nuevo Producto
+          </button>
+        </div>
       </div>
 
       {/* Mini KPIs de Inventario */}
@@ -2481,18 +2507,35 @@ function ClientesView() {
             Directorio CRM de Clientes
           </h2>
           <p className="text-secondary mb-0">
-            Administra datos de identificación (CC), contacto, ubicación y volumen de compras por cliente.
+            Persistencia en vivo sobre <code className="font-mono">data/clientes.json</code> (Microservicio :8083).
           </p>
         </div>
 
-        <button
-          type="button"
-          className="btn btn-primary rounded-3 fw-semibold px-4 py-2 shadow-sm"
-          onClick={openCreateModal}
-        >
-          <i className="bi bi-person-plus-fill me-2"></i>
-          Nuevo Cliente
-        </button>
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-primary rounded-3 fw-semibold px-3 py-2"
+            onClick={async () => {
+              try {
+                await refreshClientes();
+                notify.info('Directorio recargado desde data/clientes.json');
+              } catch (err) {
+                notify.error('El Servicio de Clientes (:8083) está detenido o no responde.');
+              }
+            }}
+          >
+            <i className="bi bi-arrow-clockwise me-2"></i>
+            Recargar clientes.json
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary rounded-3 fw-semibold px-4 py-2 shadow-sm"
+            onClick={openCreateModal}
+          >
+            <i className="bi bi-person-plus-fill me-2"></i>
+            Nuevo Cliente
+          </button>
+        </div>
       </div>
 
       {/* Barra de Búsqueda y Selector de Vista */}
@@ -2930,7 +2973,9 @@ function NuevaFacturaView() {
   const {
     productos,
     clientes,
+    servicesHealth,
     refreshAll,
+    refreshHealth,
     refreshClientes,
     preselectedClientId,
     setPreselectedClientId,
@@ -2943,6 +2988,7 @@ function NuevaFacturaView() {
   const [searchProd, setSearchProd] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [lastOrchestrationResult, setLastOrchestrationResult] = useState(null);
 
   // Modal de creación rápida de cliente sin salir del POS
   const [quickClientModal, setQuickClientModal] = useState(false);
@@ -3056,6 +3102,38 @@ function NuevaFacturaView() {
   }, [cart]);
 
   // Emitir Factura al Microservicio de Facturación (:8084)
+  const executeInvoiceRequest = async (payload) => {
+    setSubmitting(true);
+    try {
+      const facturaEmitida = await API.post(`${CONFIG.FACTURACION_API}/facturas`, payload);
+      setLastOrchestrationResult({
+        ok: true,
+        status: 201,
+        title: `Factura #${facturaEmitida.factura_id} generada exitosamente`,
+        detail: `Orquestación completada: Auth (:8081) verificó token -> Clientes (:8083) validó a ${facturaEmitida.cliente?.nombre} -> Productos (:8082) verificó precios y descontó stock -> Guardado en data/facturas.json.`,
+        time: new Date().toLocaleTimeString()
+      });
+      notify.success(`¡Factura #${facturaEmitida.factura_id} emitida y descontada del inventario!`);
+      setCart([]);
+      await refreshAll(true);
+      setActiveInvoiceModal(facturaEmitida);
+    } catch (err) {
+      await refreshHealth();
+      const title = err?.data?.title || (err.status ? `Error HTTP ${err.status} en Servicio de Facturación (:8084)` : 'Servicio General de Facturación (:8084) Detenido');
+      const detail = err?.data?.detail || err.message || 'No fue posible conectar con el Servicio de Facturación (:8084).';
+      setLastOrchestrationResult({
+        ok: false,
+        status: err.status || 'OFFLINE',
+        title,
+        detail,
+        time: new Date().toLocaleTimeString()
+      });
+      notify.error(`${title}: ${detail}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleEmitirFactura = async (e) => {
     e.preventDefault();
     const parsedClienteId = parseInt(clienteId, 10);
@@ -3077,18 +3155,20 @@ function NuevaFacturaView() {
       }))
     };
 
-    setSubmitting(true);
-    try {
-      const facturaEmitida = await API.post(`${CONFIG.FACTURACION_API}/facturas`, payload);
-      notify.success(`¡Factura #${facturaEmitida.factura_id} emitida y descontada del inventario!`);
-      setCart([]);
-      await refreshAll(true);
-      setActiveInvoiceModal(facturaEmitida);
-    } catch (err) {
-      notify.error(err.message || 'No se pudo emitir la factura.');
-    } finally {
-      setSubmitting(false);
-    }
+    await executeInvoiceRequest(payload);
+  };
+
+  // Botón para probar el efecto en el Servicio de Facturación (:8084) incluso cuando algún servicio fue detenido
+  const handleTestFaultEffect = async () => {
+    const parsedClienteId = parseInt(clienteId, 10) || (clientes[0]?.id || 201);
+    const items = cart.length > 0
+      ? cart.map((item) => ({ producto_id: item.id, cantidad: item.cantidad }))
+      : [{ producto_id: productos[0]?.id || 101, cantidad: 1 }];
+
+    await executeInvoiceRequest({
+      cliente_id: parsedClienteId,
+      productos: items
+    });
   };
 
   // Crear cliente rápido desde el POS
@@ -3126,16 +3206,87 @@ function NuevaFacturaView() {
   return (
     <div className="fade-in-up">
       {/* Encabezado */}
-      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
         <div>
           <h2 className="fw-bold mb-1">
             <i className="bi bi-cart-check-fill text-primary me-2"></i>
             Punto de Venta (POS) — Nueva Factura
           </h2>
           <p className="text-secondary mb-0">
-            Haz clic en los productos del catálogo para armar el pedido. El backend verifica precios y descuenta existencias atómicamente.
+            Orquestador en Go (<code className="font-mono">:8084</code>) conectado a Auth (<code className="font-mono">:8081</code>), Productos (<code className="font-mono">:8082</code>) y Clientes (<code className="font-mono">:8083</code>).
           </p>
         </div>
+
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-primary rounded-3 fw-semibold"
+            onClick={async () => {
+              await refreshAll(false);
+              notify.info('Archivos JSON y estado de servicios sincronizados.');
+            }}
+          >
+            <i className="bi bi-arrow-clockwise me-1"></i>
+            Recargar JSONs / Estado
+          </button>
+          <button
+            type="button"
+            className="btn btn-warning rounded-3 fw-bold text-dark shadow-sm"
+            onClick={handleTestFaultEffect}
+            disabled={submitting}
+            title="Envía una petición real a POST /facturas (:8084) para demostrar el efecto si algún servicio fue detenido"
+          >
+            <i className="bi bi-lightning-fill me-1"></i>
+            Probar Efecto en Facturación (:8084)
+          </button>
+        </div>
+      </div>
+
+      {/* Monitor de las 4 Ventanas de CMD y Resultado de Orquestación */}
+      <div className="friendly-card p-3 mb-4 border-start border-4 border-primary">
+        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+          <span className="small fw-bold text-uppercase text-secondary">
+            <i className="bi bi-terminal-fill text-primary me-1"></i>
+            Estado en Vivo de las 4 Ventanas de CMD (Orquestación de Facturas)
+          </span>
+          <small className="text-secondary">
+            Si detienes cualquier ventana con <code>Ctrl+C</code>, observa el efecto al emitir factura
+          </small>
+        </div>
+        <div className="row g-2">
+          {servicesHealth.map((s, idx) => (
+            <div className="col-sm-6 col-md-3" key={s.key}>
+              <div className={`p-2 rounded-3 border d-flex justify-content-between align-items-center small ${s.online ? 'bg-success bg-opacity-10 border-success border-opacity-25' : 'bg-danger bg-opacity-10 border-danger border-opacity-50'}`}>
+                <span className="fw-semibold text-truncate">
+                  <span className={`status-dot ${s.online ? 'online' : 'offline'} me-2`}></span>
+                  {s.name}
+                </span>
+                <span className={`badge ${s.online ? 'bg-success' : 'bg-danger'} font-mono`}>
+                  :{s.port} {s.online ? 'ON' : 'CAÍDO'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {lastOrchestrationResult && (
+          <div className={`alert ${lastOrchestrationResult.ok ? 'alert-success' : 'alert-danger'} mt-3 mb-0 rounded-3 border-0 shadow-sm fade-in-up`}>
+            <div className="d-flex justify-content-between align-items-start">
+              <div>
+                <h6 className="fw-bold mb-1">
+                  <i className={`bi ${lastOrchestrationResult.ok ? 'bi-check-circle-fill' : 'bi-exclamation-octagon-fill'} me-2`}></i>
+                  [{lastOrchestrationResult.time}] Resultado en Servicio de Facturas (:8084) — HTTP {lastOrchestrationResult.status}: {lastOrchestrationResult.title}
+                </h6>
+                <div className="small">{lastOrchestrationResult.detail}</div>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={() => setLastOrchestrationResult(null)}
+              ></button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="row g-4 align-items-start">
@@ -3567,6 +3718,314 @@ const {
   InvoiceDetailModal
 } = window;
 
+function DocumentacionView() {
+  const {
+    productos,
+    clientes,
+    facturas,
+    usuarios,
+    servicesHealth,
+    refreshAll,
+    setActiveTab,
+    notify
+  } = useApp();
+
+  const [selectedJsonTab, setSelectedJsonTab] = useState('facturas');
+  const [reloadingJson, setReloadingJson] = useState(false);
+
+  const handleReloadAllJson = async () => {
+    setReloadingJson(true);
+    try {
+      await refreshAll(false);
+      notify.success('Archivos JSON recargados en vivo desde la carpeta data/.');
+    } finally {
+      setReloadingJson(false);
+    }
+  };
+
+  const jsonFilesMap = {
+    facturas: {
+      path: 'data/facturas.json',
+      service: 'Ventana CMD 1: Servicio General de Facturación (:8084)',
+      data: facturas
+    },
+    usuarios: {
+      path: 'data/usuarios.json',
+      service: 'Ventana CMD 2: Servicio de Autenticación (:8081)',
+      data: usuarios
+    },
+    productos: {
+      path: 'data/productos.json',
+      service: 'Ventana CMD 3: Servicio de Productos (:8082)',
+      data: productos
+    },
+    clientes: {
+      path: 'data/clientes.json',
+      service: 'Ventana CMD 4: Servicio de Clientes (:8083)',
+      data: clientes
+    }
+  };
+
+  const currentJsonObj = jsonFilesMap[selectedJsonTab] || jsonFilesMap.facturas;
+
+  return (
+    <div className="fade-in-up">
+      {/* Encabezado de Documentación */}
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+          <h2 className="fw-bold mb-1">
+            <i className="bi bi-journal-code text-primary me-2"></i>
+            Documentación del Sistema y Verificación JSON
+          </h2>
+          <p className="text-secondary mb-0">
+            Arquitectura de las 4 ventanas de CMD en Go, pruebas de tolerancia a fallos y visor en vivo de archivos JSON.
+          </p>
+        </div>
+
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-primary rounded-3 fw-semibold"
+            onClick={handleReloadAllJson}
+            disabled={reloadingJson}
+          >
+            <i className="bi bi-arrow-clockwise me-1"></i>
+            Recargar Archivos JSON
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary rounded-3 fw-semibold"
+            onClick={() => setActiveTab('nueva-factura')}
+          >
+            <i className="bi bi-lightning-fill me-1"></i>
+            Ir a Probar Orquestación POS
+          </button>
+        </div>
+      </div>
+
+      {/* 1. Las 4 Ventanas de CMD y Arquitectura */}
+      <div className="friendly-card p-4 mb-4">
+        <h5 className="fw-bold mb-3">
+          <i className="bi bi-terminal-split text-primary me-2"></i>
+          1. Configuración de las 4 Ventanas de CMD y Arquitectura de Microservicios
+        </h5>
+        <p className="text-secondary small mb-3">
+          El sistema está diseñado como una arquitectura distribuida de <strong>4 microservicios independientes en Go</strong> comunicados vía HTTP/REST con persistencia en archivos <strong>JSON</strong> y una interfaz cliente web desarrollada en <strong>JavaScript (ES6+) con React.js 18 y Bootstrap 5.3</strong>:
+        </p>
+
+        <div className="table-responsive mb-3">
+          <table className="table table-friendly align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Ventana CMD</th>
+                <th>Servicio</th>
+                <th>Comando de Ejecución</th>
+                <th>Puerto</th>
+                <th>Archivo JSON</th>
+                <th>Estado Actual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { cmd: 'Ventana CMD 1', name: 'Servicio General de Facturación + Web UI', command: 'go run ./services/facturacion', port: 8084, json: 'data/facturas.json', key: 'facturacion' },
+                { cmd: 'Ventana CMD 2', name: 'Servicio de Autenticación (Auth)', command: 'go run ./services/auth', port: 8081, json: 'data/usuarios.json', key: 'auth' },
+                { cmd: 'Ventana CMD 3', name: 'Servicio de Productos e Inventario', command: 'go run ./services/productos', port: 8082, json: 'data/productos.json', key: 'productos' },
+                { cmd: 'Ventana CMD 4', name: 'Servicio de Clientes (CRM)', command: 'go run ./services/clientes', port: 8083, json: 'data/clientes.json', key: 'clientes' }
+              ].map((row) => {
+                const statusObj = servicesHealth.find((s) => s.key === row.key);
+                const isOnline = statusObj ? statusObj.online : false;
+                return (
+                  <tr key={row.key}>
+                    <td className="fw-bold text-primary">{row.cmd}</td>
+                    <td className="fw-semibold">{row.name}</td>
+                    <td><code className="font-mono bg-body-tertiary px-2 py-1 rounded">{row.command}</code></td>
+                    <td className="font-mono fw-bold">:{row.port}</td>
+                    <td><code className="font-mono text-secondary">{row.json}</code></td>
+                    <td>
+                      <span className={`badge ${isOnline ? 'badge-soft-success' : 'badge-soft-danger'} rounded-pill`}>
+                        <i className={`bi ${isOnline ? 'bi-check-circle-fill' : 'bi-x-octagon-fill'} me-1`}></i>
+                        {isOnline ? 'En Línea' : 'Detenido / Caído'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 2. Efecto de Detener/Matar cada Servicio sobre el Servicio de Facturas */}
+      <div className="friendly-card p-4 mb-4 border-start border-4 border-warning">
+        <h5 className="fw-bold mb-3">
+          <i className="bi bi-shield-exclamation text-warning me-2"></i>
+          2. Efecto en el Servicio de Facturación (:8084) al Detener o Matar cada Servicio
+        </h5>
+        <p className="text-secondary small mb-3">
+          Cuando el Servicio General de Facturación (<code>POST /facturas</code> en <code>:8084</code>) recibe la orden de generar una factura, ejecuta una <strong>orquestación secuencial en 4 pasos</strong>. Si cualquiera de los otros 3 servicios es detenido (<code>Ctrl+C</code> en su ventana de CMD), el efecto en el servicio de facturas es el siguiente:
+        </p>
+
+        <div className="table-responsive">
+          <table className="table table-bordered align-middle mb-0 small">
+            <thead className="table-light">
+              <tr>
+                <th>Servicio Detenido / Cancelado</th>
+                <th>Paso de Orquestación Afectado</th>
+                <th>Respuesta del Servicio de Facturas (:8084)</th>
+                <th>Efecto en Datos e Inventario</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="fw-bold text-danger">
+                  <i className="bi bi-shield-lock me-1"></i>
+                  Autenticación (:8081)
+                </td>
+                <td><strong>Paso 1/4:</strong> <code>GET http://localhost:8081/verify</code></td>
+                <td>Retorna <code>HTTP 503 Service Unavailable</code> indicando que el Servicio de Autenticación está detenido.</td>
+                <td>Se aborta la emisión en el Paso 1. No se consulta cliente, no se descuenta stock ni se crea factura.</td>
+              </tr>
+              <tr>
+                <td className="fw-bold text-danger">
+                  <i className="bi bi-people me-1"></i>
+                  Clientes (:8083)
+                </td>
+                <td><strong>Paso 2/4:</strong> <code>GET http://localhost:8083/clientes/&#123;id&#125;</code></td>
+                <td>Pasa el Paso 1 (Auth OK), pero falla en el Paso 2 con <code>HTTP 503 Service Unavailable</code> (Servicio de Clientes No Disponible).</td>
+                <td>Se aborta en el Paso 2. No se toca el stock de productos ni se guarda la factura en <code>facturas.json</code>.</td>
+              </tr>
+              <tr>
+                <td className="fw-bold text-danger">
+                  <i className="bi bi-box-seam me-1"></i>
+                  Productos (:8082)
+                </td>
+                <td><strong>Paso 3/4 y 4/4:</strong> <code>GET /productos/&#123;id&#125;</code> y <code>POST /productos/descontar</code></td>
+                <td>Pasan los Pasos 1 (Auth OK) y 2 (Cliente OK), pero falla en el Paso 3/4 con <code>HTTP 503 Service Unavailable</code> (Servicio de Productos No Disponible).</td>
+                <td>Transacción cancelada de forma segura: no se emite ninguna factura sin antes garantizar y descontar el stock real.</td>
+              </tr>
+              <tr>
+                <td className="fw-bold text-primary">
+                  <i className="bi bi-receipt-cutoff me-1"></i>
+                  Facturación (:8084)
+                </td>
+                <td><strong>Orquestador Principal:</strong> <code>POST /facturas</code></td>
+                <td>La interfaz web detecta caída de conexión con <code>:8084</code>, mientras Auth, Productos y Clientes siguen operativos de forma independiente.</td>
+                <td>Los catálogos de Clientes, Productos y Usuarios siguen funcionando con normalidad (desacoplamiento de microservicios).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 3. Visor en Tiempo Real de los Archivos JSON (Verificación de Modificaciones en Disco) */}
+      <div className="friendly-card p-4 mb-4">
+        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <div>
+            <h5 className="fw-bold mb-1">
+              <i className="bi bi-filetype-json text-success me-2"></i>
+              3. Inspector en Tiempo Real de Archivos JSON (Lectura Directa de Disco)
+            </h5>
+            <small className="text-secondary">
+              Todos los repositorios en Go leen el archivo <code>.json</code> en cada petición protegidos con <code>sync.RWMutex</code>. Si modificas un archivo en tu editor y pulsas <strong>"Recargar Archivos JSON"</strong>, verás el cambio al instante.
+            </small>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-success rounded-3 fw-semibold"
+            onClick={handleReloadAllJson}
+            disabled={reloadingJson}
+          >
+            <i className="bi bi-arrow-repeat me-1"></i>
+            Recargar desde Disco Ahora
+          </button>
+        </div>
+
+        <ul className="nav nav-pills bg-body-tertiary p-1 rounded-3 mb-3">
+          {[
+            { id: 'facturas', label: 'facturas.json (:8084)', count: facturas.length },
+            { id: 'usuarios', label: 'usuarios.json (:8081)', count: usuarios.length },
+            { id: 'productos', label: 'productos.json (:8082)', count: productos.length },
+            { id: 'clientes', label: 'clientes.json (:8083)', count: clientes.length }
+          ].map((tab) => (
+            <li className="nav-item" key={tab.id}>
+              <button
+                type="button"
+                className={`nav-link rounded-2 fw-semibold small ${selectedJsonTab === tab.id ? 'active' : ''}`}
+                onClick={() => setSelectedJsonTab(tab.id)}
+              >
+                <i className="bi bi-file-earmark-code me-1"></i>
+                {tab.label}{' '}
+                <span className="badge bg-secondary bg-opacity-25 text-reset ms-1">{tab.count}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <div className="p-3 rounded-3 bg-dark text-light font-mono small" style={{ maxHeight: '380px', overflowY: 'auto' }}>
+          <div className="d-flex justify-content-between align-items-center border-bottom border-secondary pb-2 mb-2 text-secondary">
+            <span>Archivo: <strong className="text-info">{currentJsonObj.path}</strong></span>
+            <span>{currentJsonObj.service}</span>
+          </div>
+          <pre className="mb-0 text-light" style={{ whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(currentJsonObj.data, null, 2)}
+          </pre>
+        </div>
+      </div>
+
+      {/* 4. Catálogo de Endpoints REST */}
+      <div className="friendly-card p-4">
+        <h5 className="fw-bold mb-3">
+          <i className="bi bi-hdd-network-fill text-primary me-2"></i>
+          4. Catálogo de Endpoints REST por Microservicio
+        </h5>
+        <div className="row g-3 small">
+          <div className="col-md-6">
+            <div className="p-3 rounded-3 bg-body-tertiary border h-100">
+              <h6 className="fw-bold text-primary">Servicio de Facturación (:8084)</h6>
+              <ul className="mb-0 ps-3 font-mono">
+                <li><strong>POST /facturas</strong> — Orquesta Auth, Clientes y Productos, descuenta stock y crea factura</li>
+                <li><strong>GET /facturas</strong> — Lista todas las facturas de <code>data/facturas.json</code></li>
+                <li><strong>GET /facturas/&#123;id&#125;</strong> — Obtiene detalle de una factura por ID</li>
+              </ul>
+            </div>
+          </div>
+          <div className="col-md-6">
+            <div className="p-3 rounded-3 bg-body-tertiary border h-100">
+              <h6 className="fw-bold text-primary">Servicio de Autenticación (:8081)</h6>
+              <ul className="mb-0 ps-3 font-mono">
+                <li><strong>POST /login</strong> — Valida credenciales en <code>data/usuarios.json</code> y emite token</li>
+                <li><strong>POST /register</strong> — Registra usuario en <code>data/usuarios.json</code></li>
+                <li><strong>GET /verify</strong> — Valida token y verifica usuario activo en <code>usuarios.json</code></li>
+                <li><strong>GET /usuarios</strong> — Lista usuarios registrados</li>
+              </ul>
+            </div>
+          </div>
+          <div className="col-md-6">
+            <div className="p-3 rounded-3 bg-body-tertiary border h-100">
+              <h6 className="fw-bold text-success">Servicio de Productos (:8082)</h6>
+              <ul className="mb-0 ps-3 font-mono">
+                <li><strong>GET /productos</strong> y <strong>GET /productos/&#123;id&#125;</strong> — Consulta en <code>data/productos.json</code></li>
+                <li><strong>POST /productos</strong>, <strong>PUT /productos/&#123;id&#125;</strong>, <strong>DELETE /productos/&#123;id&#125;</strong></li>
+                <li><strong>POST /productos/descontar</strong> — Descuento atómico de stock</li>
+              </ul>
+            </div>
+          </div>
+          <div className="col-md-6">
+            <div className="p-3 rounded-3 bg-body-tertiary border h-100">
+              <h6 className="fw-bold text-info">Servicio de Clientes (:8083)</h6>
+              <ul className="mb-0 ps-3 font-mono">
+                <li><strong>GET /clientes</strong> y <strong>GET /clientes/&#123;id&#125;</strong> — Consulta en <code>data/clientes.json</code></li>
+                <li><strong>POST /clientes</strong> — Crea cliente validando CC y email únicos</li>
+                <li><strong>PUT /clientes/&#123;id&#125;</strong> y <strong>DELETE /clientes/&#123;id&#125;</strong></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UsuariosModal({ show, onClose }) {
   const { usuarios, facturas, refreshUsuarios, notify } = useApp();
   const [reloading, setReloading] = useState(false);
@@ -3691,7 +4150,8 @@ function MainAppLayout() {
     facturas,
     usuarios,
     servicesHealth,
-    refreshHealth
+    refreshHealth,
+    refreshAll
   } = useApp();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -3728,12 +4188,20 @@ function MainAppLayout() {
       label: 'Directorio Clientes',
       icon: 'bi-people-fill',
       badge: clientes.length
+    },
+    {
+      id: 'documentacion',
+      label: 'Documentación y JSON',
+      icon: 'bi-journal-code',
+      badge: 'Guía',
+      badgeClass: 'bg-primary text-white'
     }
   ];
 
   const handleSelectNav = (tabId) => {
     setActiveTab(tabId);
     setMobileMenuOpen(false);
+    refreshAll(true);
   };
 
   const onlineCount = servicesHealth.filter((s) => s.online).length;
@@ -3963,6 +4431,7 @@ function MainAppLayout() {
           {activeTab === 'clientes' && <ClientesView />}
           {activeTab === 'nueva-factura' && <NuevaFacturaView />}
           {activeTab === 'facturas' && <FacturasListView />}
+          {activeTab === 'documentacion' && <DocumentacionView />}
         </main>
 
         {/* Pie de página amigable */}

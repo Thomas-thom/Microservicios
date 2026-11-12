@@ -115,9 +115,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		response.Error(w, http.StatusUnauthorized, "Credenciales inválidas", "Email o contraseña incorrectos")
-		return
+	if strings.HasPrefix(user.Password, "$2a$") || strings.HasPrefix(user.Password, "$2b$") || strings.HasPrefix(user.Password, "$2y$") {
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+			response.Error(w, http.StatusUnauthorized, "Credenciales inválidas", "Email o contraseña incorrectos")
+			return
+		}
+	} else {
+		// Soporte para contraseñas editadas manualmente en texto plano en data/usuarios.json durante pruebas
+		if user.Password != req.Password {
+			response.Error(w, http.StatusUnauthorized, "Credenciales inválidas", "Email o contraseña incorrectos")
+			return
+		}
 	}
 
 	tok, err := token.GenerateToken(user.ID, user.Nombre, user.Email, user.Rol, 24*time.Hour)
@@ -159,6 +167,17 @@ func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusUnauthorized, "Token inválido o expirado", err.Error())
 		return
 	}
+
+	// Verificar en tiempo real contra data/usuarios.json por si el archivo JSON fue modificado manualmente
+	userFromDisk, err := h.repo.GetByID(claims.ID)
+	if err != nil {
+		response.Error(w, http.StatusUnauthorized, "Usuario no encontrado en usuarios.json", "El usuario asociado al token ya no existe en el archivo de persistencia")
+		return
+	}
+
+	claims.Nombre = userFromDisk.Nombre
+	claims.Email = userFromDisk.Email
+	claims.Rol = userFromDisk.Rol
 
 	response.JSON(w, http.StatusOK, claims)
 }

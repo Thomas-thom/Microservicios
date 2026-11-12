@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"microservicios/pkg/token"
@@ -15,64 +17,96 @@ import (
 	"microservicios/services/facturacion/repository"
 )
 
+type mockRouterTransport struct {
+	authUp      bool
+	clientesUp  bool
+	productosUp bool
+	authH       http.HandlerFunc
+	clientesH   http.HandlerFunc
+	productosH  http.HandlerFunc
+}
+
+func (m *mockRouterTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	u := req.URL.String()
+	rec := httptest.NewRecorder()
+	switch {
+	case strings.HasPrefix(u, "http://auth.local"):
+		if !m.authUp {
+			return nil, errors.New("connectex: No connection could be made because the target machine actively refused it")
+		}
+		m.authH(rec, req)
+	case strings.HasPrefix(u, "http://clientes.local"):
+		if !m.clientesUp {
+			return nil, errors.New("connectex: No connection could be made because the target machine actively refused it")
+		}
+		m.clientesH(rec, req)
+	case strings.HasPrefix(u, "http://productos.local"):
+		if !m.productosUp {
+			return nil, errors.New("connectex: No connection could be made because the target machine actively refused it")
+		}
+		m.productosH(rec, req)
+	default:
+		return nil, errors.New("unknown host")
+	}
+	return rec.Result(), nil
+}
+
 func TestFacturacionFlow(t *testing.T) {
-	// 1. Mock de Auth Service
-	mockAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(token.UserClaims{
-			ID:     1,
-			Nombre: "Ricardo Gómez",
-			Email:  "ricardo@example.com",
-			Rol:    "admin",
-		})
-	}))
-	defer mockAuth.Close()
-
-	// 2. Mock de Clientes Service
-	mockClientes := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(clients.RemoteCliente{
-			ID:        201,
-			Nombre:    "Carlos Pérez",
-			CC:        "1234567",
-			Email:     "carlos@example.com",
-			Direccion: "Calle 123",
-		})
-	}))
-	defer mockClientes.Close()
-
-	// 3. Mock de Productos Service
 	stock101 := 10
-	mockProductos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/productos/101" {
-			json.NewEncoder(w).Encode(clients.RemoteProducto{
-				ID:     101,
-				Nombre: "Laptop Lenovo ThinkPad",
-				Precio: 3500000.0,
-				Stock:  stock101,
+
+	transport := &mockRouterTransport{
+		authUp:      true,
+		clientesUp:  true,
+		productosUp: true,
+		authH: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(token.UserClaims{
+				ID:     1,
+				Nombre: "Ricardo Gómez",
+				Email:  "ricardo@example.com",
+				Rol:    "admin",
 			})
-			return
-		}
-		if r.URL.Path == "/productos/descontar" && r.Method == http.MethodPost {
-			var descReq clients.DescontarStockRequest
-			json.NewDecoder(r.Body).Decode(&descReq)
-			for _, it := range descReq.Items {
-				if it.ID == 101 {
-					if it.Cantidad > stock101 {
-						w.WriteHeader(http.StatusConflict)
-						json.NewEncoder(w).Encode(map[string]string{"detail": "Stock insuficiente"})
-						return
-					}
-					stock101 -= it.Cantidad
-				}
+		},
+		clientesH: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(clients.RemoteCliente{
+				ID:        201,
+				Nombre:    "Carlos Pérez",
+				CC:        "1234567",
+				Email:     "carlos@example.com",
+				Direccion: "Calle 123",
+			})
+		},
+		productosH: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/productos/101" {
+				json.NewEncoder(w).Encode(clients.RemoteProducto{
+					ID:     101,
+					Nombre: "Laptop Lenovo ThinkPad",
+					Precio: 3500000.0,
+					Stock:  stock101,
+				})
+				return
 			}
-			json.NewEncoder(w).Encode(map[string]string{"mensaje": "OK"})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer mockProductos.Close()
+			if r.URL.Path == "/productos/descontar" && r.Method == http.MethodPost {
+				var descReq clients.DescontarStockRequest
+				json.NewDecoder(r.Body).Decode(&descReq)
+				for _, it := range descReq.Items {
+					if it.ID == 101 {
+						if it.Cantidad > stock101 {
+							w.WriteHeader(http.StatusConflict)
+							json.NewEncoder(w).Encode(map[string]string{"detail": "Stock insuficiente"})
+							return
+						}
+						stock101 -= it.Cantidad
+					}
+				}
+				json.NewEncoder(w).Encode(map[string]string{"mensaje": "OK"})
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		},
+	}
 
 	// 4. Inicializar repositorio de facturas temporal
 	tmpDir := t.TempDir()
@@ -82,7 +116,8 @@ func TestFacturacionFlow(t *testing.T) {
 		t.Fatalf("error init repo: %v", err)
 	}
 
-	svcClients := clients.NewServiceClients(mockAuth.URL, mockClientes.URL, mockProductos.URL)
+	svcClients := clients.NewServiceClients("http://auth.local", "http://clientes.local", "http://productos.local")
+	svcClients.SetHTTPClient(&http.Client{Transport: transport})
 	handler := handlers.NewFacturaHandler(repo, svcClients)
 
 	// 5. Emitir factura válida
@@ -150,5 +185,35 @@ func TestFacturacionFlow(t *testing.T) {
 	handler.Router(recOver, reqOverHttp)
 	if recOver.Code != http.StatusConflict {
 		t.Fatalf("esperaba status 409 por stock insuficiente, obtuve %d: %s", recOver.Code, recOver.Body.String())
+	}
+
+	// 8. Probar efecto cuando se detiene el servicio de Productos (debe retornar 503 Service Unavailable)
+	transport.productosUp = false
+	reqDown := httptest.NewRequest(http.MethodPost, "/facturas", bytes.NewReader(bodyBytes))
+	reqDown.Header.Set("Authorization", "Bearer token-valido")
+	recDown := httptest.NewRecorder()
+	handler.Router(recDown, reqDown)
+	if recDown.Code != http.StatusServiceUnavailable {
+		t.Fatalf("esperaba status 503 cuando Productos está detenido, obtuve %d: %s", recDown.Code, recDown.Body.String())
+	}
+
+	// 9. Probar efecto cuando se detiene el servicio de Clientes (debe retornar 503 Service Unavailable)
+	transport.clientesUp = false
+	reqDownCli := httptest.NewRequest(http.MethodPost, "/facturas", bytes.NewReader(bodyBytes))
+	reqDownCli.Header.Set("Authorization", "Bearer token-valido")
+	recDownCli := httptest.NewRecorder()
+	handler.Router(recDownCli, reqDownCli)
+	if recDownCli.Code != http.StatusServiceUnavailable {
+		t.Fatalf("esperaba status 503 cuando Clientes está detenido, obtuve %d: %s", recDownCli.Code, recDownCli.Body.String())
+	}
+
+	// 10. Probar efecto cuando se detiene el servicio de Autenticación (debe retornar 503 Service Unavailable)
+	transport.authUp = false
+	reqDownAuth := httptest.NewRequest(http.MethodPost, "/facturas", bytes.NewReader(bodyBytes))
+	reqDownAuth.Header.Set("Authorization", "Bearer token-valido")
+	recDownAuth := httptest.NewRecorder()
+	handler.Router(recDownAuth, reqDownAuth)
+	if recDownAuth.Code != http.StatusServiceUnavailable {
+		t.Fatalf("esperaba status 503 cuando Auth está detenido, obtuve %d: %s", recDownAuth.Code, recDownAuth.Body.String())
 	}
 }
