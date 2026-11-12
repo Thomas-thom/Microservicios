@@ -77,5 +77,53 @@
     ],
     "total": 80000,
     "fecha": "2026-10-28"
+  },
+  {
+    "factura_id": 5004,
+    "cliente": {
+      "id": 202,
+      "nombre": "Ana Torres",
+      "email": "ana@example.com"
+    },
+    "usuario": {
+      "id": 1,
+      "nombre": "Ricardo Gómez",
+      "rol": "admin"
+    },
+    "productos": [
+      {
+        "id": 103,
+        "nombre": "Monitor Samsung 24''",
+        "cantidad": 2,
+        "precio_unitario": 80000,
+        "subtotal": 160000
+      }
+    ],
+    "total": 160000,
+    "fecha": "2026-11-12"
+  },
+  {
+    "factura_id": 5005,
+    "cliente": {
+      "id": 201,
+      "nombre": "Carlos Pérez",
+      "email": "carlos@example.com"
+    },
+    "usuario": {
+      "id": 1,
+      "nombre": "Ricardo Gómez",
+      "rol": "admin"
+    },
+    "productos": [
+      {
+        "id": 103,
+        "nombre": "Monitor Samsung 24''",
+        "cantidad": 2,
+        "precio_unitario": 80000,
+        "subtotal": 160000
+      }
+    ],
+    "total": 160000,
+    "fecha": "2026-11-12"
   }
 ]
