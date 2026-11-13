@@ -19,5 +19,12 @@
     "cc": "103247623",
     "email": "nathalia9@example.com",
     "direccion": "Cra 5 # 67 a sur"
+  },
+  {
+    "id": 204,
+    "nombre": "Thomas Huerfano Ramirez",
+    "cc": "1002345796",
+    "email": "thomas@example.com",
+    "direccion": "cra 56 # 23 norte"
   }
 ]

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -66,6 +67,7 @@ func (h *ProductoHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "Error de persistencia", err.Error())
 		return
 	}
+	log.Printf("[Productos CMD] 📋 ACCIÓN PRODUCTOS -> Listado consultado (%d productos en catálogo)", len(items))
 	response.JSON(w, http.StatusOK, items)
 }
 
@@ -79,6 +81,8 @@ func (h *ProductoHandler) GetByID(w http.ResponseWriter, r *http.Request, id int
 		response.Error(w, http.StatusInternalServerError, "Error interno", err.Error())
 		return
 	}
+	log.Printf("[Productos CMD] 🔍 ACCIÓN PRODUCTOS -> Consultado producto ID=%d: %q (Precio: $%.2f, Stock: %d)",
+		item.ID, item.Nombre, item.Precio, item.Stock)
 	response.JSON(w, http.StatusOK, item)
 }
 
@@ -109,11 +113,21 @@ func (h *ProductoHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Stock:  req.Stock,
 	}
 
+	log.Printf("==================================================================")
+	log.Printf("[Productos CMD] ➕ ACCIÓN PRODUCTOS: Creando producto -> Nombre=%q | Precio=$%.2f | Stock=%d",
+		req.Nombre, req.Precio, req.Stock)
+
 	created, err := h.repo.Create(newP)
 	if err != nil {
+		log.Printf("[Productos CMD] ❌ ERROR AL CREAR PRODUCTO (%q): %v", req.Nombre, err)
+		log.Printf("==================================================================")
 		response.Error(w, http.StatusInternalServerError, "Error de persistencia", err.Error())
 		return
 	}
+
+	log.Printf("[Productos CMD] ✅ PRODUCTO CREADO EXITOSAMENTE -> ID=%d | Nombre=%q | Precio=$%.2f | Stock=%d (Guardado en data/productos.json)",
+		created.ID, created.Nombre, created.Precio, created.Stock)
+	log.Printf("==================================================================")
 	response.JSON(w, http.StatusCreated, created)
 }
 
@@ -157,10 +171,13 @@ func (h *ProductoHandler) Update(w http.ResponseWriter, r *http.Request, id int)
 		return
 	}
 
+	log.Printf("[Productos CMD] ✏️ ACCIÓN PRODUCTOS -> Producto actualizado ID=%d | Nombre=%q | Precio=$%.2f | Stock=%d",
+		res.ID, res.Nombre, res.Precio, res.Stock)
 	response.JSON(w, http.StatusOK, res)
 }
 
 func (h *ProductoHandler) Delete(w http.ResponseWriter, r *http.Request, id int) {
+	prevProd, _ := h.repo.GetByID(id)
 	err := h.repo.Delete(id)
 	if err != nil {
 		if errors.Is(err, repository.ErrProductoNotFound) {
@@ -169,6 +186,11 @@ func (h *ProductoHandler) Delete(w http.ResponseWriter, r *http.Request, id int)
 		}
 		response.Error(w, http.StatusInternalServerError, "Error de persistencia", err.Error())
 		return
+	}
+	if prevProd != nil {
+		log.Printf("[Productos CMD] 🗑️ ACCIÓN PRODUCTOS -> Producto eliminado ID=%d (%q)", id, prevProd.Nombre)
+	} else {
+		log.Printf("[Productos CMD] 🗑️ ACCIÓN PRODUCTOS -> Producto eliminado ID=%d", id)
 	}
 	response.JSON(w, http.StatusOK, map[string]string{"mensaje": "Producto eliminado exitosamente"})
 }
@@ -191,6 +213,7 @@ func (h *ProductoHandler) DescontarStock(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.repo.DescontarStock(req.Items); err != nil {
+		log.Printf("[Productos CMD] ❌ ERROR AL DESCONTAR STOCK: %v", err)
 		if errors.Is(err, repository.ErrStockInsuficiente) {
 			response.Error(w, http.StatusConflict, "Stock insuficiente", err.Error())
 			return
@@ -207,5 +230,6 @@ func (h *ProductoHandler) DescontarStock(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	log.Printf("[Productos CMD] 📦 ACCIÓN PRODUCTOS -> Stock descontado atómicamente para %d producto(s)", len(req.Items))
 	response.JSON(w, http.StatusOK, map[string]string{"mensaje": "Stock descontado exitosamente"})
 }

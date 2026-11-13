@@ -2998,6 +2998,13 @@ function NuevaFacturaView() {
   const [qcDireccion, setQcDireccion] = useState('');
   const [savingClient, setSavingClient] = useState(false);
 
+  // Modal de creación rápida de producto sin salir del POS
+  const [quickProdModal, setQuickProdModal] = useState(false);
+  const [qpNombre, setQpNombre] = useState('');
+  const [qpPrecio, setQpPrecio] = useState('');
+  const [qpStock, setQpStock] = useState('15');
+  const [savingProd, setSavingProd] = useState(false);
+
   // Si venimos desde la pestaña de Clientes con un cliente preseleccionado
   useEffect(() => {
     if (preselectedClientId) {
@@ -3203,6 +3210,41 @@ function NuevaFacturaView() {
     }
   };
 
+  // Crear producto rápido desde el POS
+  const handleQuickCreateProduct = async (e) => {
+    e.preventDefault();
+    const nombre = qpNombre.trim();
+    const precio = parseFloat(qpPrecio);
+    const stock = parseInt(qpStock, 10);
+
+    if (!nombre || isNaN(precio) || precio <= 0 || isNaN(stock) || stock < 0) {
+      notify.warning('Ingresa nombre válido, precio mayor a 0 y stock mayor o igual a 0.');
+      return;
+    }
+
+    setSavingProd(true);
+    try {
+      const nuevoProd = await API.post(`${CONFIG.PRODUCTOS_API}/productos`, {
+        nombre,
+        precio,
+        stock
+      });
+      await refreshAll(true);
+      setQuickProdModal(false);
+      setQpNombre('');
+      setQpPrecio('');
+      setQpStock('15');
+      if (nuevoProd && nuevoProd.stock > 0) {
+        addToCart(nuevoProd, 1);
+      }
+      notify.success(`Producto "${nuevoProd.nombre}" creado y agregado al catálogo.`);
+    } catch (err) {
+      notify.error(err.message || 'Error al crear el producto.');
+    } finally {
+      setSavingProd(false);
+    }
+  };
+
   return (
     <div className="fade-in-up">
       {/* Encabezado */}
@@ -3298,17 +3340,27 @@ function NuevaFacturaView() {
                 <i className="bi bi-grid-3x3-gap-fill text-primary me-2"></i>
                 1. Selecciona Productos del Catálogo
               </h5>
-              <div className="form-check form-switch mb-0">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  id="switchOnlyAvailable"
-                  checked={onlyAvailable}
-                  onChange={(e) => setOnlyAvailable(e.target.checked)}
-                />
-                <label className="form-check-label small fw-semibold text-secondary" htmlFor="switchOnlyAvailable">
-                  Ocultar agotados
-                </label>
+              <div className="d-flex align-items-center gap-3">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-link text-decoration-none p-0 fw-semibold"
+                  onClick={() => setQuickProdModal(true)}
+                >
+                  <i className="bi bi-plus-circle-fill me-1"></i>
+                  + Nuevo Producto
+                </button>
+                <div className="form-check form-switch mb-0">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="switchOnlyAvailable"
+                    checked={onlyAvailable}
+                    onChange={(e) => setOnlyAvailable(e.target.checked)}
+                  />
+                  <label className="form-check-label small fw-semibold text-secondary" htmlFor="switchOnlyAvailable">
+                    Ocultar agotados
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -3695,6 +3747,91 @@ function NuevaFacturaView() {
           </div>
         </div>
       )}
+
+      {/* Modal Rápido: Crear Producto sin salir del POS */}
+      {quickProdModal && (
+        <div
+          className="modal fade show d-block"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 1055 }}
+          tabIndex="-1"
+          onClick={() => setQuickProdModal(false)}
+        >
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content friendly-card border-0 shadow-lg">
+              <div className="modal-header border-bottom px-4 py-3">
+                <h5 className="modal-title fw-bold">
+                  <i className="bi bi-box-seam-fill text-primary me-2"></i>
+                  Registro Rápido de Producto
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setQuickProdModal(false)}
+                ></button>
+              </div>
+              <form onSubmit={handleQuickCreateProduct}>
+                <div className="modal-body p-4">
+                  <div className="mb-3">
+                    <label className="form-label small fw-semibold text-secondary">Nombre del Producto</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Ej: Teclado Mecánico RGB"
+                      value={qpNombre}
+                      onChange={(e) => setQpNombre(e.target.value)}
+                      required
+                      autoFocus
+                    />
+                  </div>
+                  <div className="row g-3">
+                    <div className="col-sm-7">
+                      <label className="form-label small fw-semibold text-secondary">Precio Unitario ($)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        className="form-control font-mono"
+                        placeholder="Ej: 185000"
+                        value={qpPrecio}
+                        onChange={(e) => setQpPrecio(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="col-sm-5">
+                      <label className="form-label small fw-semibold text-secondary">Stock Inicial</label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="form-control font-mono"
+                        placeholder="15"
+                        value={qpStock}
+                        onChange={(e) => setQpStock(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer border-top px-4 py-3">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary rounded-3"
+                    onClick={() => setQuickProdModal(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary rounded-3 fw-semibold"
+                    disabled={savingProd}
+                  >
+                    {savingProd ? 'Guardando...' : 'Crear y Agregar'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4026,9 +4163,422 @@ function DocumentacionView() {
   );
 }
 
+function UsuariosView() {
+  const { user, usuarios, facturas, refreshUsuarios, notify } = useApp();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [reloading, setReloading] = useState(false);
+
+  // Estado Modal Crear / Editar Usuario
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [formNombre, setFormNombre] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formPassword, setFormPassword] = useState('');
+  const [formRol, setFormRol] = useState('cliente');
+  const [saving, setSaving] = useState(false);
+
+  // Estado Modal Eliminar Usuario
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const filteredUsuarios = React.useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return usuarios;
+    return usuarios.filter((u) =>
+      (u.nombre || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.rol || '').toLowerCase().includes(q) ||
+      String(u.id).includes(q)
+    );
+  }, [usuarios, searchQuery]);
+
+  const openCreateModal = () => {
+    setEditingUser(null);
+    setFormNombre('');
+    setFormEmail('');
+    setFormPassword('');
+    setFormRol('cliente');
+    setModalOpen(true);
+  };
+
+  const openEditModal = (u) => {
+    setEditingUser(u);
+    setFormNombre(u.nombre || '');
+    setFormEmail(u.email || '');
+    setFormPassword('');
+    setFormRol(u.rol || 'cliente');
+    setModalOpen(true);
+  };
+
+  const handleSaveUsuario = async (e) => {
+    e.preventDefault();
+    const nombre = formNombre.trim();
+    const email = formEmail.trim();
+    const password = formPassword.trim();
+    const rol = formRol;
+
+    if (!nombre || !email) {
+      notify.warning('El nombre y correo electrónico son obligatorios.');
+      return;
+    }
+    if (!editingUser && password.length < 4) {
+      notify.warning('La contraseña debe tener al menos 4 caracteres.');
+      return;
+    }
+    if (editingUser && password && password.length < 4) {
+      notify.warning('Si cambias la contraseña, debe tener al menos 4 caracteres.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (editingUser) {
+        await API.put(`${CONFIG.AUTH_API}/usuarios/${editingUser.id}`, {
+          nombre,
+          email,
+          password,
+          rol
+        });
+        notify.success(`Usuario "${nombre}" actualizado en data/usuarios.json.`);
+      } else {
+        await API.post(`${CONFIG.AUTH_API}/usuarios`, {
+          nombre,
+          email,
+          password,
+          rol
+        });
+        notify.success(`Usuario "${nombre}" creado exitosamente en data/usuarios.json.`);
+      }
+      setModalOpen(false);
+      await refreshUsuarios();
+    } catch (err) {
+      notify.error(err.message || 'No fue posible guardar el usuario.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await API.delete(`${CONFIG.AUTH_API}/usuarios/${deleteTarget.id}`);
+      notify.success(`Usuario "${deleteTarget.nombre}" eliminado correctamente.`);
+      setDeleteTarget(null);
+      await refreshUsuarios();
+    } catch (err) {
+      notify.error(err.message || 'Error al eliminar usuario.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleReload = async () => {
+    setReloading(true);
+    try {
+      await refreshUsuarios();
+      notify.info('Directorio recargado desde data/usuarios.json');
+    } catch (err) {
+      notify.error('El Servicio de Autenticación (:8081) está detenido o no responde.');
+    } finally {
+      setReloading(false);
+    }
+  };
+
+  return (
+    <div className="fade-in-up">
+      {/* Cabecera */}
+      <div className="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+          <h2 className="fw-bold mb-1">
+            <i className="bi bi-person-badge-fill text-primary me-2"></i>
+            Gestión de Usuarios y Operadores
+          </h2>
+          <p className="text-secondary mb-0">
+            Persistencia en vivo sobre <code className="font-mono">data/usuarios.json</code> (Microservicio Auth :8081).
+          </p>
+        </div>
+
+        <div className="d-flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-outline-primary rounded-3 fw-semibold px-3 py-2"
+            onClick={handleReload}
+            disabled={reloading}
+          >
+            <i className="bi bi-arrow-clockwise me-2"></i>
+            Recargar usuarios.json
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary rounded-3 fw-semibold px-4 py-2 shadow-sm"
+            onClick={openCreateModal}
+          >
+            <i className="bi bi-person-plus-fill me-2"></i>
+            Nuevo Usuario
+          </button>
+        </div>
+      </div>
+
+      {/* Buscador */}
+      <div className="friendly-card p-3 mb-4">
+        <div className="row g-3 align-items-center justify-content-between">
+          <div className="col-md-8 col-lg-6">
+            <div className="input-group">
+              <span className="input-group-text bg-transparent">
+                <i className="bi bi-search text-secondary"></i>
+              </span>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Buscar usuario por nombre, correo, rol o ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="col-md-4 text-md-end">
+            <span className="text-secondary small fw-semibold">
+              Mostrando {filteredUsuarios.length} de {usuarios.length} usuarios registrados
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de Usuarios */}
+      <div className="friendly-card overflow-hidden">
+        <div className="table-responsive">
+          <table className="table table-friendly table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th style={{ width: '80px' }}>ID</th>
+                <th>Nombre del Usuario</th>
+                <th>Correo Electrónico</th>
+                <th>Rol de Acceso</th>
+                <th className="text-center">Facturas Emitidas</th>
+                <th className="text-end">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredUsuarios.map((u) => {
+                const emitidas = facturas.filter((f) => f.usuario?.id === u.id).length;
+                const isCurrentUser = user?.id === u.id;
+                return (
+                  <tr key={u.id}>
+                    <td>
+                      <span className="badge bg-body-secondary text-body font-mono border">
+                        #{u.id}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="d-flex align-items-center gap-3">
+                        <div className={`avatar-circle ${Formatters.avatarColor(u.nombre)}`}>
+                          {Formatters.initials(u.nombre)}
+                        </div>
+                        <div>
+                          <div className="fw-bold">
+                            {u.nombre}{' '}
+                            {isCurrentUser && (
+                              <span className="badge bg-success-subtle text-success border border-success-subtle ms-1">
+                                Tú
+                              </span>
+                            )}
+                          </div>
+                          <small className="text-secondary">Cuenta activa en Auth :8081</small>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="font-mono text-secondary">{u.email}</td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          u.rol === 'admin' ? 'badge-soft-primary' : 'badge-soft-info'
+                        } rounded-pill text-uppercase px-3 py-1`}
+                      >
+                        <i className={`bi ${u.rol === 'admin' ? 'bi-shield-check' : 'bi-person-check'} me-1`}></i>
+                        {u.rol === 'admin' ? 'Administrador' : 'Operador / Cliente'}
+                      </span>
+                    </td>
+                    <td className="text-center font-mono fw-bold">{emitidas}</td>
+                    <td className="text-end">
+                      <div className="btn-group">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary rounded-start-3"
+                          onClick={() => openEditModal(u)}
+                        >
+                          <i className="bi bi-pencil-square me-1"></i>
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger rounded-end-3"
+                          onClick={() => setDeleteTarget(u)}
+                          disabled={isCurrentUser}
+                          title={isCurrentUser ? 'No puedes eliminar tu propia sesión activa' : 'Eliminar usuario'}
+                        >
+                          <i className="bi bi-trash3"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal Crear / Editar Usuario */}
+      {modalOpen && (
+        <div
+          className="modal fade show d-block"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 1055 }}
+          tabIndex="-1"
+          onClick={() => setModalOpen(false)}
+        >
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content friendly-card border-0 shadow-lg">
+              <div className="modal-header border-bottom px-4 py-3">
+                <h5 className="modal-title fw-bold">
+                  <i className={`bi ${editingUser ? 'bi-pencil-square' : 'bi-person-plus-fill'} text-primary me-2`}></i>
+                  {editingUser ? `Editar Usuario #${editingUser.id}` : 'Registrar Nuevo Usuario'}
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setModalOpen(false)}></button>
+              </div>
+              <form onSubmit={handleSaveUsuario}>
+                <div className="modal-body p-4">
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold small text-secondary">Nombre Completo</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Ej: Laura Martínez"
+                      value={formNombre}
+                      onChange={(e) => setFormNombre(e.target.value)}
+                      required
+                      autoFocus
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold small text-secondary">Correo Electrónico</label>
+                    <input
+                      type="email"
+                      className="form-control"
+                      placeholder="laura@empresa.com"
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="row g-3">
+                    <div className="col-sm-7">
+                      <label className="form-label fw-semibold small text-secondary">
+                        {editingUser ? 'Nueva Contraseña (opcional)' : 'Contraseña'}
+                      </label>
+                      <input
+                        type="password"
+                        className="form-control"
+                        placeholder={editingUser ? 'Dejar vacío para conservar actual' : 'Mínimo 4 caracteres'}
+                        value={formPassword}
+                        onChange={(e) => setFormPassword(e.target.value)}
+                        required={!editingUser}
+                      />
+                    </div>
+                    <div className="col-sm-5">
+                      <label className="form-label fw-semibold small text-secondary">Rol en el Sistema</label>
+                      <select
+                        className="form-select"
+                        value={formRol}
+                        onChange={(e) => setFormRol(e.target.value)}
+                      >
+                        <option value="cliente">Operador (cliente)</option>
+                        <option value="admin">Administrador (admin)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer border-top px-4 py-3">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary rounded-3"
+                    onClick={() => setModalOpen(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary rounded-3 fw-semibold px-4"
+                    disabled={saving}
+                  >
+                    {saving ? 'Guardando...' : 'Guardar Usuario'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmar Eliminación de Usuario */}
+      {deleteTarget && (
+        <div
+          className="modal fade show d-block"
+          style={{ backgroundColor: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 1055 }}
+          tabIndex="-1"
+          onClick={() => setDeleteTarget(null)}
+        >
+          <div className="modal-dialog modal-sm modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content friendly-card border-0 shadow-lg text-center p-4">
+              <div className="stat-icon-circle icon-rose mx-auto mb-3">
+                <i className="bi bi-person-x-fill"></i>
+              </div>
+              <h5 className="fw-bold mb-2">¿Eliminar usuario?</h5>
+              <p className="text-secondary small mb-4">
+                Se eliminará a <strong>"{deleteTarget.nombre}"</strong> ({deleteTarget.email}) de <code>usuarios.json</code>.
+              </p>
+              <div className="d-flex gap-2 justify-content-center">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary rounded-3 flex-grow-1"
+                  onClick={() => setDeleteTarget(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger rounded-3 flex-grow-1 fw-semibold"
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? 'Eliminando...' : 'Sí, eliminar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UsuariosModal({ show, onClose }) {
   const { usuarios, facturas, refreshUsuarios, notify } = useApp();
   const [reloading, setReloading] = useState(false);
+  const [newNombre, setNewNombre] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRol, setNewRol] = useState('cliente');
+  const [creating, setCreating] = useState(false);
 
   if (!show) return null;
 
@@ -4039,6 +4589,33 @@ function UsuariosModal({ show, onClose }) {
       notify.info('Directorio de usuarios actualizado.');
     } finally {
       setReloading(false);
+    }
+  };
+
+  const handleQuickCreateUser = async (e) => {
+    e.preventDefault();
+    if (!newNombre.trim() || !newEmail.trim() || newPassword.trim().length < 4) {
+      notify.warning('Completa nombre, email y contraseña (mín. 4 caracteres).');
+      return;
+    }
+    setCreating(true);
+    try {
+      await API.post(`${CONFIG.AUTH_API}/usuarios`, {
+        nombre: newNombre.trim(),
+        email: newEmail.trim(),
+        password: newPassword.trim(),
+        rol: newRol
+      });
+      setNewNombre('');
+      setNewEmail('');
+      setNewPassword('');
+      setNewRol('cliente');
+      await refreshUsuarios();
+      notify.success('Nuevo usuario registrado en data/usuarios.json.');
+    } catch (err) {
+      notify.error(err.message || 'No se pudo crear el usuario.');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -4059,7 +4636,7 @@ function UsuariosModal({ show, onClose }) {
               <div>
                 <h5 className="modal-title fw-bold mb-0">Usuarios del Sistema (Auth :8081)</h5>
                 <small className="text-secondary">
-                  Operadores y administradores registrados en usuarios.json
+                  Crea y administra operadores y administradores en usuarios.json
                 </small>
               </div>
             </div>
@@ -4067,6 +4644,69 @@ function UsuariosModal({ show, onClose }) {
           </div>
 
           <div className="modal-body p-4">
+            {/* Formulario Rápido para Crear Usuario */}
+            <form onSubmit={handleQuickCreateUser} className="p-3 rounded-3 bg-body-tertiary border mb-4">
+              <div className="small fw-bold text-primary mb-2">
+                <i className="bi bi-person-plus-fill me-1"></i>
+                Crear Nuevo Usuario Rápido
+              </div>
+              <div className="row g-2 align-items-end">
+                <div className="col-sm-3">
+                  <label className="form-label small text-secondary mb-1">Nombre</label>
+                  <input
+                    type="text"
+                    className="form-control form-control-sm"
+                    placeholder="Nombre completo"
+                    value={newNombre}
+                    onChange={(e) => setNewNombre(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="col-sm-3">
+                  <label className="form-label small text-secondary mb-1">Email</label>
+                  <input
+                    type="email"
+                    className="form-control form-control-sm"
+                    placeholder="usuario@correo.com"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="col-sm-2">
+                  <label className="form-label small text-secondary mb-1">Contraseña</label>
+                  <input
+                    type="password"
+                    className="form-control form-control-sm"
+                    placeholder="Mín. 4 car."
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="col-sm-2">
+                  <label className="form-label small text-secondary mb-1">Rol</label>
+                  <select
+                    className="form-select form-select-sm"
+                    value={newRol}
+                    onChange={(e) => setNewRol(e.target.value)}
+                  >
+                    <option value="cliente">Operador</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div className="col-sm-2">
+                  <button
+                    type="submit"
+                    className="btn btn-sm btn-primary w-100 fw-semibold"
+                    disabled={creating}
+                  >
+                    {creating ? '...' : '+ Crear'}
+                  </button>
+                </div>
+              </div>
+            </form>
+
             <div className="d-flex justify-content-between align-items-center mb-3">
               <span className="small text-secondary fw-semibold">
                 Total registrados: <strong>{usuarios.length}</strong> cuentas activas
@@ -4188,6 +4828,12 @@ function MainAppLayout() {
       label: 'Directorio Clientes',
       icon: 'bi-people-fill',
       badge: clientes.length
+    },
+    {
+      id: 'usuarios',
+      label: 'Usuarios y Accesos',
+      icon: 'bi-person-badge-fill',
+      badge: usuarios.length
     },
     {
       id: 'documentacion',
@@ -4429,6 +5075,7 @@ function MainAppLayout() {
           {activeTab === 'dashboard' && <DashboardView />}
           {activeTab === 'productos' && <ProductosView />}
           {activeTab === 'clientes' && <ClientesView />}
+          {activeTab === 'usuarios' && <UsuariosView />}
           {activeTab === 'nueva-factura' && <NuevaFacturaView />}
           {activeTab === 'facturas' && <FacturasListView />}
           {activeTab === 'documentacion' && <DocumentacionView />}

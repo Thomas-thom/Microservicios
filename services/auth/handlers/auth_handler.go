@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ func NewAuthHandler(repo *repository.UserRepository) *AuthHandler {
 	return &AuthHandler{repo: repo}
 }
 
-// Register maneja el registro de nuevos usuarios
+// Register maneja el registro de nuevos usuarios (vía /register o POST /usuarios)
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.Error(w, http.StatusMethodNotAllowed, "Método no permitido", "Use POST para registrarse")
@@ -73,8 +74,13 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		Rol:      req.Rol,
 	}
 
+	log.Printf("==================================================================")
+	log.Printf("[Auth CMD] ➕ ACCIÓN USUARIOS: Creando usuario -> Nombre=%q | Email=%s | Rol=%s", req.Nombre, req.Email, req.Rol)
+
 	created, err := h.repo.Create(newUser)
 	if err != nil {
+		log.Printf("[Auth CMD] ❌ ERROR AL CREAR USUARIO (%s): %v", req.Email, err)
+		log.Printf("==================================================================")
 		if err == repository.ErrUserAlreadyExists {
 			response.Error(w, http.StatusConflict, "Usuario ya registrado", err.Error())
 			return
@@ -82,6 +88,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "Error de persistencia", err.Error())
 		return
 	}
+
+	log.Printf("[Auth CMD] ✅ USUARIO CREADO EXITOSAMENTE -> ID=%d | Nombre=%q | Email=%s | Rol=%s (Guardado en data/usuarios.json)",
+		created.ID, created.Nombre, created.Email, created.Rol)
+	log.Printf("==================================================================")
 
 	// No exponer la contraseña
 	created.Password = ""
@@ -111,18 +121,21 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.repo.GetByEmail(req.Email)
 	if err != nil {
+		log.Printf("[Auth CMD] ⚠️ Intento de login fallido para email=%s (usuario no encontrado)", req.Email)
 		response.Error(w, http.StatusUnauthorized, "Credenciales inválidas", "Email o contraseña incorrectos")
 		return
 	}
 
 	if strings.HasPrefix(user.Password, "$2a$") || strings.HasPrefix(user.Password, "$2b$") || strings.HasPrefix(user.Password, "$2y$") {
 		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+			log.Printf("[Auth CMD] ⚠️ Intento de login fallido para email=%s (contraseña incorrecta)", req.Email)
 			response.Error(w, http.StatusUnauthorized, "Credenciales inválidas", "Email o contraseña incorrectos")
 			return
 		}
 	} else {
 		// Soporte para contraseñas editadas manualmente en texto plano en data/usuarios.json durante pruebas
 		if user.Password != req.Password {
+			log.Printf("[Auth CMD] ⚠️ Intento de login fallido para email=%s (contraseña incorrecta)", req.Email)
 			response.Error(w, http.StatusUnauthorized, "Credenciales inválidas", "Email o contraseña incorrectos")
 			return
 		}
@@ -133,6 +146,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, "Error al generar token", err.Error())
 		return
 	}
+
+	log.Printf("[Auth CMD] 🔐 LOGIN EXITOSO -> Usuario ID=%d | Nombre=%q | Email=%s | Rol=%s", user.ID, user.Nombre, user.Email, user.Rol)
 
 	safeUser := *user
 	safeUser.Password = ""
@@ -182,13 +197,14 @@ func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, claims)
 }
 
-// UsersHandler maneja las operaciones de listar o consultar usuarios
+// UsersHandler maneja las operaciones de listar, crear, consultar, actualizar o eliminar usuarios
 func (h *AuthHandler) UsersHandler(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/usuarios")
 	path = strings.TrimPrefix(path, "/")
 
 	if path == "" {
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			users, err := h.repo.GetAll()
 			if err != nil {
 				response.Error(w, http.StatusInternalServerError, "Error al leer usuarios", err.Error())
@@ -197,11 +213,16 @@ func (h *AuthHandler) UsersHandler(w http.ResponseWriter, r *http.Request) {
 			for i := range users {
 				users[i].Password = ""
 			}
+			log.Printf("[Auth CMD] 📋 ACCIÓN USUARIOS -> Listado de usuarios consultado (%d usuarios registrados)", len(users))
 			response.JSON(w, http.StatusOK, users)
 			return
+		case http.MethodPost:
+			h.Register(w, r)
+			return
+		default:
+			response.Error(w, http.StatusMethodNotAllowed, "Método no permitido", "Use GET o POST")
+			return
 		}
-		response.Error(w, http.StatusMethodNotAllowed, "Método no permitido", "")
-		return
 	}
 
 	id, err := strconv.Atoi(path)
@@ -210,7 +231,8 @@ func (h *AuthHandler) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
 		user, err := h.repo.GetByID(id)
 		if err != nil {
 			response.Error(w, http.StatusNotFound, "Usuario no encontrado", err.Error())
@@ -220,7 +242,90 @@ func (h *AuthHandler) UsersHandler(w http.ResponseWriter, r *http.Request) {
 		safeUser.Password = ""
 		response.JSON(w, http.StatusOK, safeUser)
 		return
-	}
 
-	response.Error(w, http.StatusMethodNotAllowed, "Método no permitido", "")
+	case http.MethodPut:
+		var req models.UpdateUserRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			response.Error(w, http.StatusBadRequest, "Petición inválida", "JSON mal formado")
+			return
+		}
+		req.Nombre = strings.TrimSpace(req.Nombre)
+		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+		req.Password = strings.TrimSpace(req.Password)
+		req.Rol = strings.TrimSpace(strings.ToLower(req.Rol))
+
+		if req.Nombre == "" || req.Email == "" {
+			response.Error(w, http.StatusBadRequest, "Datos incompletos", "Nombre y email son obligatorios")
+			return
+		}
+		if !strings.Contains(req.Email, "@") || !strings.Contains(req.Email, ".") {
+			response.Error(w, http.StatusBadRequest, "Email inválido", "El formato del correo electrónico no es válido")
+			return
+		}
+		if req.Rol != "admin" && req.Rol != "cliente" {
+			req.Rol = "cliente"
+		}
+
+		hashedPass := ""
+		if req.Password != "" {
+			if len(req.Password) < 4 {
+				response.Error(w, http.StatusBadRequest, "Contraseña insegura", "La contraseña debe tener al menos 4 caracteres")
+				return
+			}
+			hp, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+			if err != nil {
+				response.Error(w, http.StatusInternalServerError, "Error interno", "No se pudo procesar la contraseña")
+				return
+			}
+			hashedPass = string(hp)
+		}
+
+		updated, err := h.repo.Update(id, models.User{
+			ID:       id,
+			Nombre:   req.Nombre,
+			Email:    req.Email,
+			Password: hashedPass,
+			Rol:      req.Rol,
+		})
+		if err != nil {
+			if err == repository.ErrUserNotFound {
+				response.Error(w, http.StatusNotFound, "Usuario no encontrado", err.Error())
+				return
+			}
+			if err == repository.ErrUserAlreadyExists {
+				response.Error(w, http.StatusConflict, "Email en uso", err.Error())
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "Error de persistencia", err.Error())
+			return
+		}
+
+		log.Printf("[Auth CMD] ✏️ ACCIÓN USUARIOS -> Usuario actualizado ID=%d | Nombre=%q | Email=%s | Rol=%s",
+			updated.ID, updated.Nombre, updated.Email, updated.Rol)
+		updated.Password = ""
+		response.JSON(w, http.StatusOK, updated)
+		return
+
+	case http.MethodDelete:
+		prevUser, _ := h.repo.GetByID(id)
+		if err := h.repo.Delete(id); err != nil {
+			if err == repository.ErrUserNotFound {
+				response.Error(w, http.StatusNotFound, "Usuario no encontrado", err.Error())
+				return
+			}
+			response.Error(w, http.StatusInternalServerError, "Error de persistencia", err.Error())
+			return
+		}
+		if prevUser != nil {
+			log.Printf("[Auth CMD] 🗑️ ACCIÓN USUARIOS -> Usuario eliminado ID=%d | Nombre=%q | Email=%s",
+				id, prevUser.Nombre, prevUser.Email)
+		} else {
+			log.Printf("[Auth CMD] 🗑️ ACCIÓN USUARIOS -> Usuario eliminado ID=%d", id)
+		}
+		response.JSON(w, http.StatusOK, map[string]string{"mensaje": "Usuario eliminado exitosamente"})
+		return
+
+	default:
+		response.Error(w, http.StatusMethodNotAllowed, "Método no permitido", "Use GET, PUT o DELETE")
+	}
 }

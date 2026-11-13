@@ -3,7 +3,7 @@
     "id": 101,
     "nombre": "Laptop Lenovo ThinkPad",
     "precio": 3500000,
-    "stock": 13
+    "stock": 11
   },
   {
     "id": 102,
@@ -16,5 +16,11 @@
     "nombre": "Monitor Samsung 24''",
     "precio": 80000,
     "stock": 15
+  },
+  {
+    "id": 104,
+    "nombre": "Teclado Mecanico RGB",
+    "precio": 150000,
+    "stock": 14
   }
 ]

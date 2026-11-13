@@ -180,5 +180,60 @@
     ],
     "total": 3500000,
     "fecha": "2026-11-12"
+  },
+  {
+    "factura_id": 5008,
+    "cliente": {
+      "id": 203,
+      "nombre": "Nathalia Ovalle",
+      "email": "nathalia9@example.com"
+    },
+    "usuario": {
+      "id": 1,
+      "nombre": "Ricardo Gómez",
+      "rol": "admin"
+    },
+    "productos": [
+      {
+        "id": 101,
+        "nombre": "Laptop Lenovo ThinkPad",
+        "cantidad": 1,
+        "precio_unitario": 3500000,
+        "subtotal": 3500000
+      }
+    ],
+    "total": 3500000,
+    "fecha": "2026-11-12"
+  },
+  {
+    "factura_id": 5009,
+    "cliente": {
+      "id": 201,
+      "nombre": "Carlos Pérez",
+      "email": "carlos@example.com"
+    },
+    "usuario": {
+      "id": 1,
+      "nombre": "Ricardo Gómez",
+      "rol": "admin"
+    },
+    "productos": [
+      {
+        "id": 104,
+        "nombre": "Teclado Mecanico RGB",
+        "cantidad": 1,
+        "precio_unitario": 150000,
+        "subtotal": 150000
+      },
+      {
+        "id": 101,
+        "nombre": "Laptop Lenovo ThinkPad",
+        "cantidad": 1,
+        "precio_unitario": 3500000,
+        "subtotal": 3500000
+      }
+    ],
+    "total": 3650000,
+    "fecha": "2026-11-12"
   }
 ]

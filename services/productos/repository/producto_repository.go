@@ -122,7 +122,7 @@ func (r *ProductoRepository) Create(p models.Producto) (*models.Producto, error)
 		return nil, err
 	}
 
-	maxID := 0
+	maxID := 100
 	for _, item := range items {
 		if item.ID > maxID {
 			maxID = item.ID

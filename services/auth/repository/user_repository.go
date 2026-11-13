@@ -148,3 +148,70 @@ func (r *UserRepository) Create(u models.User) (*models.User, error) {
 
 	return &u, nil
 }
+
+func (r *UserRepository) Update(id int, updated models.User) (*models.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	users, err := r.readAllUnlocked()
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedEmail := strings.TrimSpace(strings.ToLower(updated.Email))
+	foundIndex := -1
+
+	for i, existing := range users {
+		if existing.ID == id {
+			foundIndex = i
+		} else if strings.TrimSpace(strings.ToLower(existing.Email)) == normalizedEmail {
+			return nil, ErrUserAlreadyExists
+		}
+	}
+
+	if foundIndex == -1 {
+		return nil, ErrUserNotFound
+	}
+
+	current := users[foundIndex]
+	current.Nombre = strings.TrimSpace(updated.Nombre)
+	current.Email = normalizedEmail
+	if updated.Rol == "admin" || updated.Rol == "cliente" {
+		current.Rol = updated.Rol
+	}
+	if strings.TrimSpace(updated.Password) != "" {
+		current.Password = updated.Password
+	}
+
+	users[foundIndex] = current
+	if err := r.writeAllUnlocked(users); err != nil {
+		return nil, err
+	}
+
+	return &current, nil
+}
+
+func (r *UserRepository) Delete(id int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	users, err := r.readAllUnlocked()
+	if err != nil {
+		return err
+	}
+
+	foundIndex := -1
+	for i, existing := range users {
+		if existing.ID == id {
+			foundIndex = i
+			break
+		}
+	}
+
+	if foundIndex == -1 {
+		return ErrUserNotFound
+	}
+
+	users = append(users[:foundIndex], users[foundIndex+1:]...)
+	return r.writeAllUnlocked(users)
+}

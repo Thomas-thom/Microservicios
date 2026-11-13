@@ -17,6 +17,14 @@ type RegisterRequest struct {
 	Rol      string `json:"rol"`
 }
 
+// UpdateUserRequest datos recibidos para actualizar un usuario existente
+type UpdateUserRequest struct {
+	Nombre   string `json:"nombre"`
+	Email    string `json:"email"`
+	Password string `json:"password,omitempty"`
+	Rol      string `json:"rol"`
+}
+
 // LoginRequest credenciales de inicio de sesión
 type LoginRequest struct {
 	Email    string `json:"email"`
