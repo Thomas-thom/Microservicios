@@ -12,5 +12,26 @@
     "email": "maria@example.com",
     "password": "$2a$10$utnegcBfrefHZBdNuE9Jb.kLYTzVtf7C/1ocOCw5ZQiDY.Akp9RM.",
     "rol": "cliente"
+  },
+  {
+    "id": 3,
+    "nombre": "Yesid Gonzalez",
+    "email": "yesid6@example.com",
+    "password": "$2a$10$1za2JeDNO1KI7AuntFqQUujemxfXFTfG7OrwZ/lZh8xVLPcDKZtQS",
+    "rol": "cliente"
+  },
+  {
+    "id": 4,
+    "nombre": "Alan Brito",
+    "email": "alan@gmail.com",
+    "password": "$2a$10$vxbUTc9uPWUMdG9plcVgbeCor/sNKMtb0hQYTOfSLE7SM1NXS.7Ji",
+    "rol": "cliente"
+  },
+  {
+    "id": 5,
+    "nombre": "Cristian Rodriguez",
+    "email": "cristian87r@gmail.com",
+    "password": "$2a$10$mUnYVUUKQwuu7PsdZFmzvuv2.nxyY2nMNw9ZNczM7KpE3psh4HKhy",
+    "rol": "admin"
   }
 ]

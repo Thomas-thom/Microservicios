@@ -235,5 +235,67 @@
     ],
     "total": 3650000,
     "fecha": "2026-11-12"
+  },
+  {
+    "factura_id": 5010,
+    "cliente": {
+      "id": 203,
+      "nombre": "Nathalia Ovalle",
+      "email": "nathalia9@example.com"
+    },
+    "usuario": {
+      "id": 5,
+      "nombre": "Cristian Rodriguez",
+      "rol": "admin"
+    },
+    "productos": [
+      {
+        "id": 105,
+        "nombre": "Forro de Computadora",
+        "cantidad": 1,
+        "precio_unitario": 10000,
+        "subtotal": 10000
+      }
+    ],
+    "total": 10000,
+    "fecha": "2026-11-12"
+  },
+  {
+    "factura_id": 5011,
+    "cliente": {
+      "id": 205,
+      "nombre": "Joshep Torres",
+      "email": "josep76@hotmail.com"
+    },
+    "usuario": {
+      "id": 5,
+      "nombre": "Cristian Rodriguez",
+      "rol": "admin"
+    },
+    "productos": [
+      {
+        "id": 101,
+        "nombre": "Laptop Lenovo ThinkPad",
+        "cantidad": 1,
+        "precio_unitario": 3500000,
+        "subtotal": 3500000
+      },
+      {
+        "id": 105,
+        "nombre": "Forro de Computadora",
+        "cantidad": 2,
+        "precio_unitario": 10000,
+        "subtotal": 20000
+      },
+      {
+        "id": 104,
+        "nombre": "Teclado Mecanico RGB",
+        "cantidad": 1,
+        "precio_unitario": 150000,
+        "subtotal": 150000
+      }
+    ],
+    "total": 3670000,
+    "fecha": "2026-11-12"
   }
 ]

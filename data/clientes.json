@@ -26,5 +26,12 @@
     "cc": "1002345796",
     "email": "thomas@example.com",
     "direccion": "cra 56 # 23 norte"
+  },
+  {
+    "id": 205,
+    "nombre": "Joshep Torres",
+    "cc": "102345796",
+    "email": "josep76@hotmail.com",
+    "direccion": "Cra 54# 8 sur"
   }
 ]
